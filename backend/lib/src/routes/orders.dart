@@ -149,6 +149,44 @@ void registerOrders(Router r, AppDb db) {
     await c.empty(200);
   });
 
+  // Sinkronkan status order langsung ke Midtrans (tanpa webhook). Dipanggil aplikasi Flutter
+  // saat membuka My Tickets, jadi status ter-update walau backend tidak punya URL publik.
+  r.post('/api/orders/:orderId/sync', (c) async {
+    final tx = db.one('SELECT * FROM transactions WHERE order_id=?', <Object?>[c.params['orderId']]);
+    if (tx == null || tx['user_id'] != c.userId) {
+      await c.json(404, <String, Object?>{'message': 'Order not found'});
+      return;
+    }
+    if (_hasKey() && tx['status'] == 'pending') {
+      try {
+        final key = Env.get('MIDTRANS_SERVER_KEY');
+        final resp = await http.get(
+          Uri.parse('https://api.sandbox.midtrans.com/v2/${tx['order_id']}/status'),
+          headers: <String, String>{
+            'Accept': 'application/json',
+            'Authorization': 'Basic ${base64Encode(utf8.encode('$key:'))}',
+          },
+        ).timeout(const Duration(seconds: 15));
+        final data = jsonDecode(utf8.decode(resp.bodyBytes));
+        final ts = data is Map ? data['transaction_status']?.toString() : null;
+        const map = <String, String>{
+          'settlement': 'paid',
+          'capture': 'paid',
+          'expire': 'expired',
+          'cancel': 'failed',
+          'deny': 'failed',
+        };
+        final status = ts == null ? null : map[ts];
+        if (status != null) settleOrder(db, tx['order_id'] as String, status);
+      } catch (e) {
+        await c.json(502, <String, Object?>{'message': 'Could not reach Midtrans', 'detail': e.toString()});
+        return;
+      }
+    }
+    final fresh = db.one('SELECT order_id, status FROM transactions WHERE order_id=?', <Object?>[tx['order_id']]);
+    await c.json(200, <String, Object?>{'order_id': fresh?['order_id'], 'status': fresh?['status']});
+  }, auth: true);
+
   // Daftar transaksi user
   r.get('/api/orders', (c) async {
     final rows = db.all(
