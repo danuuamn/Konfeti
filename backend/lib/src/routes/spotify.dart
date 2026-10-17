@@ -270,3 +270,17 @@ void registerSpotify(Router r, AppDb db) {
     }
   }, auth: true);
 }
+
+/// Foto artis dari Spotify (dipakai bin/seed.dart). Null bila key belum diisi / artis tidak ditemukan.
+Future<String?> fetchArtistImage(String name) async {
+  try {
+    final s = await _spotifyGet('/search?type=artist&limit=1&q=${Uri.encodeComponent(name)}');
+    final artists = s['artists'];
+    final items = artists is Map ? artists['items'] : null;
+    final first = (items is List && items.isNotEmpty) ? items.first : null;
+    if (first is! Map) return null;
+    return _firstImage(first['images']);
+  } catch (_) {
+    return null;
+  }
+}

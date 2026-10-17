@@ -25,11 +25,10 @@ class AppDb {
     for (final statement in schemaStatements) {
       raw.execute(statement);
     }
-    // Migrasi: database lama belum punya kolom events.lineup
-    final cols = raw.select('PRAGMA table_info(events)');
-    if (!cols.any((r) => r['name'] == 'lineup')) {
-      raw.execute('ALTER TABLE events ADD COLUMN lineup TEXT');
-    }
+    // Migrasi untuk app.db lama (dibuat sebelum ada kategori tiket)
+    final cols = raw.select('PRAGMA table_info(transactions)').map((row) => row['name']).toSet();
+    if (!cols.contains('tier_id')) raw.execute('ALTER TABLE transactions ADD COLUMN tier_id INTEGER');
+    if (!cols.contains('tier_name')) raw.execute('ALTER TABLE transactions ADD COLUMN tier_name TEXT');
     return AppDb._(raw);
   }
 

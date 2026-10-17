@@ -24,8 +24,7 @@ CREATE TABLE IF NOT EXISTS events (
   end_time_utc TEXT NOT NULL,
   price_idr INTEGER NOT NULL,
   stock INTEGER NOT NULL,
-  image_url TEXT,
-  lineup TEXT
+  image_url TEXT
 )''',
   '''
 CREATE TABLE IF NOT EXISTS transactions (
@@ -36,7 +35,19 @@ CREATE TABLE IF NOT EXISTS transactions (
   gross_amount INTEGER NOT NULL,
   status TEXT DEFAULT 'pending',
   snap_token TEXT,
+  tier_id INTEGER,
+  tier_name TEXT,
   created_at TEXT DEFAULT (datetime('now'))
+)''',
+  '''
+CREATE TABLE IF NOT EXISTS ticket_tiers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id INTEGER NOT NULL REFERENCES events(id),
+  name TEXT NOT NULL,
+  description TEXT,
+  price_idr INTEGER NOT NULL,
+  stock INTEGER NOT NULL,
+  sort_order INTEGER DEFAULT 0
 )''',
   '''
 CREATE TABLE IF NOT EXISTS tickets (

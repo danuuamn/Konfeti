@@ -1,17 +1,21 @@
 import '../db.dart';
 import '../env.dart';
 import '../services/blockchain.dart';
+import 'orders.dart' show syncPendingOrders;
 import '../web.dart';
 
 void registerTickets(Router r, AppDb db) {
   // Daftar tiket milik user (untuk halaman "My Tickets")
   r.get('/api/tickets', (c) async {
+    await syncPendingOrders(db, c.userId);
     final rows = db.all(
       '''SELECT t.ticket_code, t.order_id, e.id AS event_id, e.title, e.artist, e.venue_name,
                 e.start_time_utc, e.end_time_utc, e.latitude, e.longitude, e.is_outdoor,
+                tr.tier_name,
                 CASE WHEN e.end_time_utc < strftime('%Y-%m-%dT%H:%M:%fZ','now')
                      THEN 'history' ELSE 'active' END AS state
          FROM tickets t JOIN events e ON e.id = t.event_id
+         LEFT JOIN transactions tr ON tr.order_id = t.order_id
          WHERE t.user_id = ? ORDER BY e.start_time_utc ASC''',
       <Object?>[c.userId],
     );

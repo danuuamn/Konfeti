@@ -38,6 +38,9 @@ Map<String, Object?>? settleOrder(AppDb db, String orderId, String status) {
         addBlock(db, code, userId);
       }
       db.run('UPDATE events SET stock = MAX(stock - ?, 0) WHERE id = ?', <Object?>[qty, eventId]);
+      if (tx['tier_id'] != null) {
+        db.run('UPDATE ticket_tiers SET stock = MAX(stock - ?, 0) WHERE id = ?', <Object?>[qty, tx['tier_id']]);
+      }
     }
     db.run('UPDATE transactions SET status=? WHERE order_id=?', <Object?>[status, orderId]);
     final m = _message(status, title, qty);

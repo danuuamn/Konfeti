@@ -23,6 +23,11 @@ dart run test/smoke.dart
 ```
 Hasil yang diharapkan: `0 failed`. Tes ini tidak butuh API key (pembayaran disimulasikan, butuh `ALLOW_DEV_ROUTES=true` di `.env`).
 
+## Kategori tiket & gambar artis
+- Tiap event punya kategori tiket (tabel `ticket_tiers`): artis besar banyak kategori (CAT, Festival, VIP), artis kecil hanya 1. Saat order, app mengirim `tier_id`.
+- `dart run bin/seed.dart` juga melengkapi kategori untuk database lama (tanpa menghapus data).
+- Gambar artis diambil dari Spotify saat seed (butuh `SPOTIFY_CLIENT_ID/SECRET` di `.env`). Ulangi kapan saja dengan `dart run bin/seed.dart --images`. Bisa juga isi alamat gambar manual di `_manualImages` pada `bin/seed.dart`.
+
 ## Struktur
 - `bin/server.dart` : titik masuk server, `bin/seed.dart` : data awal
 - `lib/src/web.dart` : router, CORS, rate limit, static `/uploads`

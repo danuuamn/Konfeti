@@ -36,6 +36,17 @@ class Ctx {
     await res.close();
   }
 
+  /// Balasan HTML sederhana.
+  Future<void> html(int status, String content) async {
+    final bytes = utf8.encode(content);
+    final res = request.response;
+    res.statusCode = status;
+    res.headers.contentType = ContentType('text', 'html', charset: 'utf-8');
+    res.headers.contentLength = bytes.length;
+    res.add(bytes);
+    await res.close();
+  }
+
   /// Balasan tanpa body.
   Future<void> empty(int status) async {
     final res = request.response;

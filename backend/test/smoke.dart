@@ -138,18 +138,33 @@ Future<void> main() async {
     final ev = events.firstWhere(
         (e) => (e['stock'] as int) > 5 && DateTime.parse(e['end_time_utc'] as String).isAfter(now));
     final evId = ev['id'];
+    r = await call('GET', '/api/events/$evId');
+    final tiers = ((r.data['tiers'] as List?) ?? <dynamic>[]).cast<Map>();
+    check('event detail lists ticket categories', tiers.isNotEmpty);
+    final tier = tiers.firstWhere((t) => (t['stock'] as int) > 5, orElse: () => tiers.first);
+    final tierId = tier['id'];
+    final unitPrice = tier['price_idr'] as int;
+    final events2 = events.where((e) => (e['tiers'] as List).length > 1).toList();
+    check('some events have many categories and some only one',
+        events2.isNotEmpty && events.any((e) => (e['tiers'] as List).length == 1));
+    r = await call('POST', '/api/orders', body: {'event_id': evId, 'qty': 1}, token: token);
+    check('order without category rejected (400)', r.status == 400);
+    final otherEv = events.firstWhere((e) => e['id'] != evId && (e['tiers'] as List).isNotEmpty);
+    r = await call('POST', '/api/orders',
+        body: {'event_id': evId, 'qty': 1, 'tier_id': (otherEv['tiers'] as List).first['id']}, token: token);
+    check('category of another event rejected (400)', r.status == 400);
     final midtransOn = features['midtrans'] == true;
     if (!midtransOn && dev) {
       final stockBefore = ev['stock'] as int;
       r = await call('POST', '/api/orders',
-          body: {'event_id': evId, 'qty': 2, 'promo_code': 'KONFETI10'}, token: token);
+          body: {'event_id': evId, 'qty': 2, 'tier_id': tierId, 'promo_code': 'KONFETI10'}, token: token);
       check('demo order created (201)', r.status == 201 && r.data['demo'] == true, jsonEncode(r.data));
-      final expected = ((ev['price_idr'] as int) * 0.9).round() * 2;
+      final expected = (unitPrice * 0.9).round() * 2;
       check('promo discount applied to total', r.data['gross_amount'] == expected,
           '${r.data['gross_amount']} vs $expected');
       final demoOrder = r.data['order_id'];
       r = await call('POST', '/api/orders',
-          body: {'event_id': evId, 'qty': 1, 'promo_code': 'BOGUS'}, token: token);
+          body: {'event_id': evId, 'qty': 1, 'tier_id': tierId, 'promo_code': 'BOGUS'}, token: token);
       check('order with invalid promo rejected', r.status == 400);
       r = await call('GET', '/api/orders', token: token);
       check('pending order listed',
@@ -160,6 +175,8 @@ Future<void> main() async {
       check('2 tickets issued', r.data is List && (r.data as List).length == 2, 'got ${(r.data as List).length}');
       r = await call('GET', '/api/events/$evId');
       check('stock decreased by qty', r.data['stock'] == stockBefore - 2);
+      final tierAfter = (r.data['tiers'] as List).firstWhere((t) => t['id'] == tierId);
+      check('category stock decreased by qty', tierAfter['stock'] == (tier['stock'] as int) - 2);
       r = await call('GET', '/api/notifications', token: token);
       check('"Payment successful" notification created', hasNotif(r, (n) => n['title'] == 'Payment successful'));
     } else {
@@ -167,7 +184,7 @@ Future<void> main() async {
     }
 
     print('\n[5] Midtrans webhook (signed) -> tickets -> blockchain');
-    r = await call('POST', '/api/orders', body: {'event_id': evId, 'qty': 1}, token: token);
+    r = await call('POST', '/api/orders', body: {'event_id': evId, 'qty': 1, 'tier_id': tierId}, token: token);
     String code = '';
     if (r.status != 201) {
       check('order for webhook test created', false, 'status ${r.status} ${jsonEncode(r.data)}');
