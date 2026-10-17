@@ -25,6 +25,11 @@ class AppDb {
     for (final statement in schemaStatements) {
       raw.execute(statement);
     }
+    // Migrasi: database lama belum punya kolom events.lineup
+    final cols = raw.select('PRAGMA table_info(events)');
+    if (!cols.any((r) => r['name'] == 'lineup')) {
+      raw.execute('ALTER TABLE events ADD COLUMN lineup TEXT');
+    }
     return AppDb._(raw);
   }
 

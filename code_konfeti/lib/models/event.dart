@@ -16,6 +16,7 @@ class Event {
     required this.stock,
     this.spotifyArtistId,
     this.imageUrl,
+    this.lineup = const <String>[],
   });
 
   final int id;
@@ -32,6 +33,18 @@ class Event {
   final int stock;
   final String? spotifyArtistId;
   final String? imageUrl;
+
+  /// Semua artis yang tampil. Jika backend tidak mengirim lineup, berisi headliner saja.
+  final List<String> lineup;
+
+  List<String> get artists => lineup.isEmpty ? <String>[artist] : lineup;
+  bool get isMultiArtist => artists.length > 1;
+  String get artistLabel => artists.join(', ');
+
+  bool get isLive {
+    final now = DateTime.now().toUtc();
+    return now.isAfter(startUtc) && now.isBefore(endUtc);
+  }
 
   bool get hasEnded => endUtc.isBefore(DateTime.now());
   bool get soldOut => stock <= 0;
@@ -51,6 +64,11 @@ class Event {
         stock: (j['stock'] as num?)?.toInt() ?? 0,
         spotifyArtistId: j['spotify_artist_id'] as String?,
         imageUrl: j['image_url'] as String?,
+        lineup: ((j['lineup'] ?? '') as String)
+            .split(',')
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty)
+            .toList(),
       );
 }
 
@@ -159,4 +177,30 @@ class Ticket {
         latitude: (j['latitude'] as num?)?.toDouble(),
         longitude: (j['longitude'] as num?)?.toDouble(),
       );
+}
+
+/// Tiket dalam satu pemesanan (order). Di list tampil 1 kartu; di detail tampil semua tiketnya.
+class TicketGroup {
+  TicketGroup(this.tickets);
+  final List<Ticket> tickets;
+
+  Ticket get first => tickets.first;
+  int get count => tickets.length;
+  String get orderId => first.orderId;
+  int get eventId => first.eventId;
+  String get title => first.title;
+  String get artist => first.artist;
+  String get venueName => first.venueName;
+  DateTime get startUtc => first.startUtc;
+  DateTime get endUtc => first.endUtc;
+  bool get isLive => first.isLive;
+  bool get canOpenDetail => first.canOpenDetail;
+}
+
+List<TicketGroup> groupTickets(List<Ticket> tickets) {
+  final byOrder = <String, List<Ticket>>{};
+  for (final t in tickets) {
+    byOrder.putIfAbsent(t.orderId, () => <Ticket>[]).add(t);
+  }
+  return byOrder.values.map(TicketGroup.new).toList();
 }

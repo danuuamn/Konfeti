@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
+import '../../core/app_theme.dart';
 import '../../core/config.dart';
 import '../../core/formatters.dart';
+import '../../core/widgets.dart';
 import '../../models/event.dart';
+import '../../services/time_zones.dart';
 import '../shell/shell_nav.dart';
 
-/// Checkout: jumlah tiket, kode promo, konversi mata uang (IDR/USD/EUR/JPY/SGD/MYR), lalu bayar.
+/// Payment: jumlah tiket, kode promo, konversi mata uang (IDR/USD/EUR/JPY/SGD/MYR), lalu bayar.
 class CheckoutPage extends StatefulWidget {
   const CheckoutPage({super.key, required this.event});
   final Event event;
@@ -126,21 +129,37 @@ class _CheckoutPageState extends State<CheckoutPage> {
     final theme = Theme.of(context);
     final e = widget.event;
     final rate = _rates[_currency] ?? 1;
+    final p = zoneParts(e.startUtc, 'Asia/Jakarta');
     return Scaffold(
-      appBar: AppBar(title: const Text('Checkout')),
+      appBar: AppBar(title: const Text('Payment'), actions: const <Widget>[RotateButton()]),
       body: ListView(padding: const EdgeInsets.all(16), children: <Widget>[
-        Text(e.title, style: theme.textTheme.titleLarge),
-        Text('${e.artist} • ${e.venueName}'),
-        const SizedBox(height: 20),
-        Row(children: <Widget>[
-          const Expanded(child: Text('Tickets')),
-          IconButton.filledTonal(
-              onPressed: _qty > 1 ? () => setState(() => _qty--) : null, icon: const Icon(Icons.remove)),
-          Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Text('$_qty', style: theme.textTheme.titleLarge)),
-          IconButton.filledTonal(
-              onPressed: _qty < _maxQty ? () => setState(() => _qty++) : null, icon: const Icon(Icons.add)),
-        ]),
+        AppCard(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+            Text(e.title, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 2),
+            Text('${e.artistLabel} • ${e.venueName}', style: const TextStyle(color: AppColors.sky, fontSize: 13)),
+            const SizedBox(height: 8),
+            Row(children: <Widget>[
+              const Icon(Icons.event, size: 16, color: AppColors.sun),
+              const SizedBox(width: 6),
+              Text('${p.date} • ${p.time} ${p.abbr}', style: const TextStyle(fontSize: 13)),
+            ]),
+          ]),
+        ),
         const SizedBox(height: 12),
+        AppCard(
+          child: Row(children: <Widget>[
+            const Expanded(child: Text('Tickets', style: TextStyle(fontWeight: FontWeight.w600))),
+            IconButton.filledTonal(
+                onPressed: _qty > 1 ? () => setState(() => _qty--) : null, icon: const Icon(Icons.remove)),
+            Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text('$_qty', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700))),
+            IconButton.filledTonal(
+                onPressed: _qty < _maxQty ? () => setState(() => _qty++) : null, icon: const Icon(Icons.add)),
+          ]),
+        ),
+        const SizedBox(height: 16),
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
           Expanded(
             child: TextField(
@@ -150,36 +169,36 @@ class _CheckoutPageState extends State<CheckoutPage> {
                 labelText: 'Promo code',
                 errorText: _promoError,
                 helperText: _appliedCode != null ? '$_appliedCode applied: $_discountPercent% off' : null,
-                border: const OutlineInputBorder(),
               ),
             ),
           ),
           const SizedBox(width: 8),
           Padding(
             padding: const EdgeInsets.only(top: 4),
-            child: FilledButton.tonal(onPressed: _applyPromo, child: const Text('Apply')),
+            child: FilledButton(
+              onPressed: _applyPromo,
+              style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16)),
+              child: const Text('Apply'),
+            ),
           ),
         ]),
         const SizedBox(height: 20),
-        Text('Show price in', style: theme.textTheme.titleSmall),
+        Text('Show price in', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
-        Wrap(spacing: 8, children: <Widget>[
+        Wrap(spacing: 8, runSpacing: 8, children: <Widget>[
           for (final code in _rates.keys)
-            ChoiceChip(label: Text(code), selected: _currency == code, onSelected: (_) => setState(() => _currency = code)),
+            CategoryPill(label: code, selected: _currency == code, onTap: () => setState(() => _currency = code)),
         ]),
         const SizedBox(height: 20),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(children: <Widget>[
-              _row('Price per ticket', rupiah(e.priceIdr)),
-              if (_discountPercent > 0) _row('Discount', '-$_discountPercent%'),
-              _row('Quantity', '× $_qty'),
-              const Divider(),
-              _row('Total (charged in IDR)', rupiah(_total), bold: true),
-              if (_currency != 'IDR') _row('≈ Total in $_currency', money(_total * rate, _currency), bold: true),
-            ]),
-          ),
+        AppCard(
+          child: Column(children: <Widget>[
+            _row('Price per ticket', rupiah(e.priceIdr)),
+            if (_discountPercent > 0) _row('Discount', '-$_discountPercent%', valueColor: AppColors.butter),
+            _row('Quantity', '× $_qty'),
+            const Divider(height: 24),
+            _row('Total (charged in IDR)', rupiah(_total), bold: true, big: true),
+            if (_currency != 'IDR') _row('≈ Total in $_currency', money(_total * rate, _currency), bold: true, valueColor: AppColors.sun),
+          ]),
         ),
         if (_currency != 'IDR')
           Padding(
@@ -187,31 +206,39 @@ class _CheckoutPageState extends State<CheckoutPage> {
             child: Text(
               'Converted amount is an estimate${_rateSource == 'fallback' ? ' (offline rates)' : ''}. '
               'You will pay in IDR.',
-              style: theme.textTheme.bodySmall,
+              style: const TextStyle(color: AppColors.sky, fontSize: 12),
             ),
           ),
       ]),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: FilledButton(
-            onPressed: _busy ? null : _pay,
-            child: _busy
-                ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                : Text('Pay ${rupiah(_total)}'),
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(color: AppColors.bgAlt, border: Border(top: BorderSide(color: AppColors.skyFaint))),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: _busy ? null : _pay,
+                child: _busy
+                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.ink))
+                    : Text('Pay ${rupiah(_total)}'),
+              ),
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _row(String label, String value, {bool bold = false}) {
-    final style = bold ? const TextStyle(fontWeight: FontWeight.bold) : null;
+  Widget _row(String label, String value, {bool bold = false, bool big = false, Color? valueColor}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: <Widget>[
-        Text(label, style: style),
-        Text(value, style: style),
+        Text(label, style: TextStyle(fontWeight: bold ? FontWeight.w700 : FontWeight.w400, color: bold ? Colors.white : AppColors.sky)),
+        Text(value,
+            style: TextStyle(
+                fontWeight: bold ? FontWeight.w800 : FontWeight.w500, fontSize: big ? 18 : 14, color: valueColor ?? Colors.white)),
       ]),
     );
   }

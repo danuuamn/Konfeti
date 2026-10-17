@@ -2,12 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'core/api_client.dart';
+import 'core/favorites.dart';
+import 'core/app_theme.dart';
+import 'core/navigation.dart';
 import 'core/session.dart';
 import 'features/auth/login_page.dart';
 import 'features/shell/main_shell.dart';
+import 'services/sensor_service.dart';
 import 'services/time_zones.dart';
 
-final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+// Accelerometer (darurat) hanya aktif saat login; gyroscope aktif di semua halaman sejak app dibuka.
+void _syncSensors() => SensorService.instance.setEmergencyEnabled(Session.instance.loggedIn);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,7 +23,11 @@ Future<void> main() async {
     navigatorKey.currentState?.popUntil((r) => r.isFirst); // tutup halaman yang sedang terbuka
     Session.instance.logout();
   };
+  await Favorites.load();
   await Session.instance.restore();
+  SensorService.instance.startGyroscope();
+  Session.instance.addListener(_syncSensors);
+  _syncSensors();
   runApp(const KonfetiApp());
 }
 
@@ -30,11 +39,9 @@ class KonfetiApp extends StatelessWidget {
     return MaterialApp(
       title: 'Konfeti',
       navigatorKey: navigatorKey,
+      scaffoldMessengerKey: messengerKey,
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF7C3AED)),
-      ),
+      theme: buildTheme(),
       home: ListenableBuilder(
         listenable: Session.instance,
         builder: (context, _) => Session.instance.loggedIn ? const MainShell() : const LoginPage(),

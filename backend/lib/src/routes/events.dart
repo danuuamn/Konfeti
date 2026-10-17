@@ -14,8 +14,8 @@ void registerEvents(Router r, AppDb db) {
     };
     final order = orderMap[sort] ?? orderMap['start']!; // whitelist -> aman dari SQL injection
 
-    var sql = 'SELECT * FROM events WHERE (title LIKE ? OR artist LIKE ?)';
-    final params = <Object?>['%$q%', '%$q%'];
+    var sql = 'SELECT * FROM events WHERE (title LIKE ? OR artist LIKE ? OR lineup LIKE ?)';
+    final params = <Object?>['%$q%', '%$q%', '%$q%'];
     if (category != null && category.isNotEmpty) {
       sql += ' AND category=?';
       params.add(category);

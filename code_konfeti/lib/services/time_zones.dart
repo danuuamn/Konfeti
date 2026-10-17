@@ -23,3 +23,15 @@ void initTimeZones() => tzdata.initializeTimeZones();
   final t = tz.TZDateTime.from(utc.toUtc(), tz.getLocation(tzName));
   return (text: DateFormat('EEE, d MMM yyyy • HH:mm').format(t), abbr: t.timeZoneName);
 }
+
+/// Potongan tanggal/jam untuk tampilan kartu (hari, bulan, tanggal lengkap, jam).
+({String day, String month, String date, String time, String abbr}) zoneParts(DateTime utc, String tzName) {
+  final t = tz.TZDateTime.from(utc.toUtc(), tz.getLocation(tzName));
+  return (
+    day: DateFormat('d').format(t),
+    month: DateFormat('MMM').format(t),
+    date: DateFormat('d MMM yyyy').format(t),
+    time: DateFormat('HH:mm').format(t),
+    abbr: t.timeZoneName,
+  );
+}

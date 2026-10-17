@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
+import '../../core/app_theme.dart';
+import '../../core/widgets.dart';
 import '../../core/formatters.dart';
 import '../../models/event.dart';
 import '../../services/time_zones.dart';
@@ -21,8 +23,8 @@ class MyTicketsPage extends StatefulWidget {
 class _MyTicketsPageState extends State<MyTicketsPage> with SingleTickerProviderStateMixin {
   late final TabController _tabs = TabController(length: 3, vsync: this);
   List<Order> _pending = <Order>[];
-  List<Ticket> _active = <Ticket>[];
-  List<Ticket> _history = <Ticket>[];
+  List<TicketGroup> _active = <TicketGroup>[];
+  List<TicketGroup> _history = <TicketGroup>[];
   bool _loading = true;
   String? _error;
   Timer? _poll;
@@ -80,8 +82,9 @@ class _MyTicketsPageState extends State<MyTicketsPage> with SingleTickerProvider
       if (!mounted) return;
       setState(() {
         _pending = orders.where((o) => o.status == 'pending').toList();
-        _active = tickets.where((t) => t.state == 'active').toList();
-        _history = tickets.where((t) => t.state == 'history').toList();
+        // 1 kartu per pemesanan (order), meskipun isinya beberapa tiket
+        _active = groupTickets(tickets.where((t) => t.state == 'active').toList());
+        _history = groupTickets(tickets.where((t) => t.state == 'history').toList());
         _error = null;
       });
     } catch (e) {
@@ -105,7 +108,7 @@ class _MyTicketsPageState extends State<MyTicketsPage> with SingleTickerProvider
     }
   }
 
-  void _openTicket(Ticket t) {
+  void _openTicket(TicketGroup t) {
     if (!t.canOpenDetail) {
       final d = t.startUtc.difference(DateTime.now().toUtc());
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -115,7 +118,7 @@ class _MyTicketsPageState extends State<MyTicketsPage> with SingleTickerProvider
       ));
       return;
     }
-    Navigator.push(context, MaterialPageRoute<void>(builder: (_) => TicketDetailPage(ticket: t)));
+    Navigator.push(context, MaterialPageRoute<void>(builder: (_) => TicketDetailPage(group: t)));
   }
 
   @override
@@ -123,95 +126,134 @@ class _MyTicketsPageState extends State<MyTicketsPage> with SingleTickerProvider
     return Scaffold(
       appBar: AppBar(
         title: const Text('My Tickets'),
-        bottom: TabBar(controller: _tabs, tabs: <Widget>[
-          Tab(text: 'Pending${_pending.isEmpty ? '' : ' (${_pending.length})'}'),
-          const Tab(text: 'Active'),
-          const Tab(text: 'History'),
-        ]),
+        actions: const <Widget>[RotateButton()],
+        bottom: TabBar(
+          controller: _tabs,
+          labelColor: AppColors.sun,
+          unselectedLabelColor: AppColors.sky,
+          indicatorColor: AppColors.sun,
+          dividerColor: AppColors.skyFaint,
+          tabs: <Widget>[
+            Tab(text: 'Pending${_pending.isEmpty ? '' : ' (${_pending.length})'}'),
+            const Tab(text: 'Active'),
+            const Tab(text: 'History'),
+          ],
+        ),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
               ? Center(
                   child: Column(mainAxisSize: MainAxisSize.min, children: <Widget>[
-                    Text(_error!),
-                    const SizedBox(height: 12),
+                    Padding(padding: const EdgeInsets.all(16), child: Text(_error!, textAlign: TextAlign.center)),
                     FilledButton(onPressed: _load, child: const Text('Try again')),
                   ]),
                 )
               : TabBarView(controller: _tabs, children: <Widget>[
-                  _list(_pending.map(_pendingCard).toList(), 'No pending payments.'),
-                  _list(_active.map(_activeCard).toList(), 'No active tickets yet.\nBuy one from Home!'),
-                  _list(_history.map(_historyCard).toList(), 'Past events will appear here.'),
+                  _list(_pending.map(_pendingCard).toList(), 'No pending payments.', Icons.hourglass_empty),
+                  _list(_active.map(_activeCard).toList(), 'No active tickets yet.\nBuy one from Home!', Icons.confirmation_number_outlined),
+                  _list(_history.map(_historyCard).toList(), 'Past events will appear here.', Icons.history),
                 ]),
     );
   }
 
-  Widget _list(List<Widget> items, String empty) {
+  Widget _list(List<Widget> items, String empty, IconData icon) {
     return RefreshIndicator(
       onRefresh: _load,
       child: items.isEmpty
           ? ListView(children: <Widget>[
               const SizedBox(height: 120),
-              Center(child: Text(empty, textAlign: TextAlign.center)),
+              Icon(icon, size: 56, color: AppColors.skyDim),
+              const SizedBox(height: 12),
+              Center(child: Text(empty, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.sky))),
             ])
           : ListView(padding: const EdgeInsets.all(16), children: items),
     );
   }
 
   Widget _pendingCard(Order o) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-          Text(o.title, style: Theme.of(context).textTheme.titleMedium),
-          Text('${o.artist} • ${o.venueName}'),
-          const SizedBox(height: 4),
-          Text('${o.qty} ticket(s) • ${rupiah(o.grossAmount)}'),
-          Text('Order ${o.orderId}', style: Theme.of(context).textTheme.bodySmall),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerRight,
-            child: FilledButton(onPressed: () => _payNow(o), child: Text(o.isDemo ? 'Pay (demo)' : 'Pay now')),
-          ),
+    return AppCard(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+        Row(children: <Widget>[
+          const Tag('AWAITING PAYMENT', icon: Icons.hourglass_top),
         ]),
-      ),
+        const SizedBox(height: 8),
+        Text(o.title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+        Text('${o.artist} • ${o.venueName}', style: const TextStyle(color: AppColors.sky, fontSize: 13)),
+        const SizedBox(height: 6),
+        Text('${o.qty} ticket(s) • ${rupiah(o.grossAmount)}', style: const TextStyle(fontWeight: FontWeight.w600)),
+        Text('Order ${o.orderId}', style: const TextStyle(color: AppColors.sky, fontSize: 11)),
+        const SizedBox(height: 10),
+        Align(
+          alignment: Alignment.centerRight,
+          child: FilledButton(onPressed: () => _payNow(o), child: Text(o.isDemo ? 'Pay (demo)' : 'Pay now')),
+        ),
+      ]),
     );
   }
 
-  Widget _activeCard(Ticket t) {
-    final wib = convertToZone(t.startUtc, 'Asia/Jakarta');
+  Widget _dateBlock(DateTime startUtc) {
+    final p = zoneParts(startUtc, 'Asia/Jakarta');
+    return Container(
+      width: 56,
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(color: AppColors.bg, borderRadius: BorderRadius.circular(12)),
+      child: Column(mainAxisSize: MainAxisSize.min, children: <Widget>[
+        Text(p.month.toUpperCase(), style: const TextStyle(color: AppColors.sky, fontSize: 11, fontWeight: FontWeight.w600)),
+        Text(p.day, style: const TextStyle(color: AppColors.sun, fontSize: 22, fontWeight: FontWeight.w800, height: 1.1)),
+      ]),
+    );
+  }
+
+  Widget _activeCard(TicketGroup t) {
+    final p = zoneParts(t.startUtc, 'Asia/Jakarta');
     final untilStart = t.startUtc.difference(DateTime.now().toUtc());
     final badge = t.isLive ? 'LIVE NOW' : (untilStart.isNegative ? '' : 'Starts in ${countdown(untilStart)}');
-    return Card(
-      child: ListTile(
-        onTap: () => _openTicket(t),
-        leading: const Icon(Icons.confirmation_number, size: 32),
-        title: Text(t.title),
-        subtitle: Text('${t.venueName}\n${wib.text} ${wib.abbr}\n${t.code}'),
-        isThreeLine: true,
-        trailing: Column(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: <Widget>[
+    return AppCard(
+      margin: const EdgeInsets.only(bottom: 12),
+      onTap: () => _openTicket(t),
+      child: Row(children: <Widget>[
+        _dateBlock(t.startUtc),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+            Text(t.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+            const SizedBox(height: 2),
+            Text('${t.venueName}\n${p.time} ${p.abbr}', style: const TextStyle(color: AppColors.sky, fontSize: 12)),
+            const SizedBox(height: 6),
+            Tag('${t.count} ticket${t.count > 1 ? 's' : ''}', icon: Icons.confirmation_number_outlined),
+          ]),
+        ),
+        Column(mainAxisSize: MainAxisSize.min, children: <Widget>[
           if (badge.isNotEmpty)
             Text(badge,
                 style: TextStyle(
-                    color: t.isLive ? Colors.red : Theme.of(context).colorScheme.primary,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12)),
-          const Icon(Icons.chevron_right),
+                    color: t.isLive ? const Color(0xFFFF6B6B) : AppColors.butter, fontWeight: FontWeight.w700, fontSize: 11)),
+          const Icon(Icons.chevron_right, color: AppColors.sky),
         ]),
-      ),
+      ]),
     );
   }
 
-  Widget _historyCard(Ticket t) {
-    final wib = convertToZone(t.startUtc, 'Asia/Jakarta');
-    return Card(
-      child: ListTile(
-        leading: const Icon(Icons.history, size: 32),
-        title: Text(t.title),
-        subtitle: Text('${t.venueName}\n${wib.text} ${wib.abbr}'),
-        isThreeLine: true,
-      ),
+  Widget _historyCard(TicketGroup t) {
+    final p = zoneParts(t.startUtc, 'Asia/Jakarta');
+    return AppCard(
+      margin: const EdgeInsets.only(bottom: 12),
+      color: AppColors.bgAlt,
+      child: Row(children: <Widget>[
+        _dateBlock(t.startUtc),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+            Text(t.title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+            Text('${t.venueName}\n${p.date} • ${p.time} ${p.abbr}', style: const TextStyle(color: AppColors.sky, fontSize: 12)),
+            const SizedBox(height: 6),
+            Tag('${t.count} ticket${t.count > 1 ? 's' : ''}', outlined: true),
+          ]),
+        ),
+        const Icon(Icons.check_circle_outline, color: AppColors.skyDim),
+      ]),
     );
   }
 }

@@ -1,14 +1,19 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 
 import '../../core/api_client.dart';
+import '../../core/app_theme.dart';
 import '../../core/formatters.dart';
+import '../../core/widgets.dart';
 import '../../models/event.dart';
 import '../../services/time_zones.dart';
+import 'event_banner.dart';
 import 'event_detail_page.dart';
 
-/// Home: daftar konser + pencarian + sorting + filter kategori.
+/// Home: pencarian, sorting, filter kategori, lalu Live/Featured, Nearby, dan Upcoming events.
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -26,6 +31,7 @@ class _HomePageState extends State<HomePage> {
   String _sort = 'start';
   bool _loading = true;
   String? _error;
+  Position? _pos;
 
   static const Map<String, String> _sortLabels = <String, String>{
     'start': 'Soonest',
@@ -38,6 +44,7 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     _loadCategories();
     _load();
+    _loadLocation();
   }
 
   @override
@@ -52,6 +59,26 @@ class _HomePageState extends State<HomePage> {
       final data = await ApiClient.instance.get('/api/events/categories') as List;
       if (mounted) setState(() => _categories = data.whereType<String>().toList());
     } catch (_) {/* filter kategori opsional */}
+  }
+
+  /// Lokasi user untuk bagian "Nearby Events". Jika ditolak/gagal, bagian itu disembunyikan.
+  Future<void> _loadLocation() async {
+    try {
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) perm = await Geolocator.requestPermission();
+      if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) return;
+      final pos = await Geolocator.getLastKnownPosition() ??
+          await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(accuracy: LocationAccuracy.low, timeLimit: Duration(seconds: 6)),
+          );
+      if (mounted) setState(() => _pos = pos);
+    } catch (_) {/* tanpa lokasi */}
+  }
+
+  double? _km(Event e) {
+    final p = _pos;
+    if (p == null || e.latitude == null || e.longitude == null) return null;
+    return Geolocator.distanceBetween(p.latitude, p.longitude, e.latitude!, e.longitude!) / 1000;
   }
 
   Future<void> _load() async {
@@ -82,65 +109,111 @@ class _HomePageState extends State<HomePage> {
     _debounce = Timer(const Duration(milliseconds: 400), _load);
   }
 
+  void _open(Event e) =>
+      Navigator.push(context, MaterialPageRoute<void>(builder: (_) => EventDetailPage(event: e)));
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Konfeti')),
-      body: Column(children: <Widget>[
+      body: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: <Widget>[
+              SliverToBoxAdapter(child: _header()),
+              ..._sections(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _header() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 8, 0),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+        Row(children: <Widget>[
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+              const Text('Konfeti',
+                  style: TextStyle(color: AppColors.sun, fontSize: 28, fontWeight: FontWeight.w800)),
+              Text('Find your next concert', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.sky)),
+            ]),
+          ),
+          const RotateButton(),
+        ]),
+        const SizedBox(height: 12),
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          padding: const EdgeInsets.only(right: 8),
           child: TextField(
             controller: _search,
-            onChanged: _onSearchChanged,
+            onChanged: (v) {
+              setState(() {});
+              _onSearchChanged(v);
+            },
             textInputAction: TextInputAction.search,
             decoration: InputDecoration(
               hintText: 'Search artist or concert',
-              prefixIcon: const Icon(Icons.search),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(vertical: 14),
+              fillColor: const Color(0x990E2340),
+              prefixIcon: const Icon(Icons.search, color: AppColors.sky),
               suffixIcon: _search.text.isEmpty
                   ? null
                   : IconButton(
-                      icon: const Icon(Icons.clear),
+                      icon: const Icon(Icons.clear, color: AppColors.sky),
                       onPressed: () {
                         _search.clear();
+                        setState(() {});
                         _load();
                       }),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(28)),
-              contentPadding: const EdgeInsets.symmetric(vertical: 0),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(28), borderSide: const BorderSide(color: AppColors.skyDim)),
+              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(28), borderSide: const BorderSide(color: AppColors.skyDim)),
+              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(28), borderSide: const BorderSide(color: AppColors.sun, width: 1.6)),
             ),
           ),
         ),
+        const SizedBox(height: 12),
         SizedBox(
-          height: 52,
+          height: 38,
           child: ListView(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.only(right: 16),
             children: <Widget>[
               PopupMenuButton<String>(
                 tooltip: 'Sort',
+                color: AppColors.bgAlt,
                 onSelected: (v) {
                   setState(() => _sort = v);
                   _load();
                 },
                 itemBuilder: (_) => _sortLabels.entries
-                    .map((e) => PopupMenuItem<String>(value: e.key, child: Text(e.value)))
+                    .map((e) => PopupMenuItem<String>(
+                          value: e.key,
+                          child: Text(e.value, style: TextStyle(color: e.key == _sort ? AppColors.sun : Colors.white)),
+                        ))
                     .toList(),
-                child: Chip(avatar: const Icon(Icons.sort, size: 18), label: Text(_sortLabels[_sort]!)),
+                child: IgnorePointer(
+                  child: CategoryPill(label: _sortLabels[_sort]!, selected: false, icon: Icons.sort),
+                ),
               ),
               const SizedBox(width: 8),
-              ChoiceChip(
-                label: const Text('All'),
+              CategoryPill(
+                label: 'All',
                 selected: _category == null,
-                onSelected: (_) {
+                onTap: () {
                   setState(() => _category = null);
                   _load();
                 },
               ),
               for (final c in _categories) ...<Widget>[
                 const SizedBox(width: 8),
-                ChoiceChip(
-                  label: Text(c),
+                CategoryPill(
+                  label: c,
                   selected: _category == c,
-                  onSelected: (_) {
+                  onTap: () {
                     setState(() => _category = _category == c ? null : c);
                     _load();
                   },
@@ -149,84 +222,166 @@ class _HomePageState extends State<HomePage> {
             ],
           ),
         ),
-        Expanded(child: _body()),
       ]),
     );
   }
 
-  Widget _body() {
-    if (_loading && _events.isEmpty) return const Center(child: CircularProgressIndicator());
-    if (_error != null && _events.isEmpty) {
-      return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: <Widget>[
-          Text(_error!, textAlign: TextAlign.center),
-          const SizedBox(height: 12),
-          FilledButton(onPressed: _load, child: const Text('Try again')),
-        ]),
-      );
+  List<Widget> _sections() {
+    if (_loading && _events.isEmpty) {
+      return const <Widget>[
+        SliverFillRemaining(hasScrollBody: false, child: Center(child: CircularProgressIndicator())),
+      ];
     }
-    return RefreshIndicator(
-      onRefresh: _load,
-      child: _events.isEmpty
-          ? ListView(children: const <Widget>[
-              SizedBox(height: 120),
-              Center(child: Text('No concerts found.')),
-            ])
-          : ListView.builder(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-              itemCount: _events.length,
-              itemBuilder: (_, i) => _EventCard(
-                event: _events[i],
-                onTap: () => Navigator.push(
-                    context, MaterialPageRoute<void>(builder: (_) => EventDetailPage(event: _events[i]))),
-              ),
+    if (_error != null && _events.isEmpty) {
+      return <Widget>[
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(
+            child: Column(mainAxisSize: MainAxisSize.min, children: <Widget>[
+              Padding(padding: const EdgeInsets.all(16), child: Text(_error!, textAlign: TextAlign.center)),
+              FilledButton(onPressed: _load, child: const Text('Try again')),
+            ]),
+          ),
+        ),
+      ];
+    }
+    if (_events.isEmpty) {
+      return const <Widget>[
+        SliverFillRemaining(hasScrollBody: false, child: Center(child: Text('No concerts found.'))),
+      ];
+    }
+
+    final live = _events.where((e) => e.isLive).toList();
+    final hero = live.isNotEmpty ? live.first : _events.first;
+    final nearby = _events.where((e) => _km(e) != null).toList()..sort((a, b) => _km(a)!.compareTo(_km(b)!));
+    final upcoming = _events.where((e) => e.id != hero.id).toList();
+    final width = MediaQuery.sizeOf(context).width;
+    final columns = width > 800 ? 4 : (width > 520 ? 3 : 2);
+
+    return <Widget>[
+      SliverToBoxAdapter(child: SectionHeader(live.isNotEmpty ? 'Live Concert' : 'Featured Concert', live: live.isNotEmpty)),
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: _HeroCard(event: hero, live: live.isNotEmpty, onTap: () => _open(hero)),
+        ),
+      ),
+      if (nearby.isNotEmpty) ...<Widget>[
+        const SliverToBoxAdapter(child: SectionHeader('Nearby Events')),
+        SliverToBoxAdapter(
+          child: SizedBox(
+            height: 228,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: math.min(nearby.length, 8),
+              separatorBuilder: (_, __) => const SizedBox(width: 12),
+              itemBuilder: (_, i) => _MediumCard(event: nearby[i], km: _km(nearby[i])!, onTap: () => _open(nearby[i])),
             ),
-    );
+          ),
+        ),
+      ],
+      if (upcoming.isNotEmpty) ...<Widget>[
+        const SliverToBoxAdapter(child: SectionHeader('Upcoming Events')),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          sliver: SliverGrid(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: 0.8,
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (_, i) => _SmallCard(event: upcoming[i], onTap: () => _open(upcoming[i])),
+              childCount: upcoming.length,
+            ),
+          ),
+        ),
+      ],
+    ];
   }
 }
 
-class _EventCard extends StatelessWidget {
-  const _EventCard({required this.event, required this.onTap});
+class _HeroCard extends StatelessWidget {
+  const _HeroCard({required this.event, required this.live, required this.onTap});
   final Event event;
+  final bool live;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final wib = convertToZone(event.startUtc, 'Asia/Jakarta');
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      margin: const EdgeInsets.only(top: 12),
-      child: InkWell(
+    final p = zoneParts(event.startUtc, 'Asia/Jakarta');
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: SizedBox(
+        height: 210,
+        child: Stack(fit: StackFit.expand, children: <Widget>[
+          EventBanner(event: event),
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.bottomCenter,
+                end: Alignment.topCenter,
+                colors: <Color>[Color(0xE6000000), Color(0x00000000)],
+                stops: <double>[0, 0.8],
+              ),
+            ),
+          ),
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 14,
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: <Widget>[
+              Tag(live ? 'LIVE NOW' : 'FEATURED', icon: live ? Icons.circle : Icons.star_rounded),
+              const SizedBox(height: 6),
+              Text(event.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, height: 1.2)),
+              const SizedBox(height: 2),
+              Text('${event.artistLabel} • ${p.date}',
+                  maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppColors.sky, fontSize: 12)),
+              const SizedBox(height: 4),
+              Text(rupiah(event.priceIdr),
+                  style: const TextStyle(color: AppColors.sun, fontWeight: FontWeight.w700, fontSize: 15)),
+            ]),
+          ),
+          Material(color: Colors.transparent, child: InkWell(onTap: onTap)),
+        ]),
+      ),
+    );
+  }
+}
+
+class _MediumCard extends StatelessWidget {
+  const _MediumCard({required this.event, required this.km, required this.onTap});
+  final Event event;
+  final double km;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 200,
+      child: AppCard(
+        padding: EdgeInsets.zero,
         onTap: onTap,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-          EventBanner(event: event, height: 110),
+          SizedBox(height: 108, child: EventBanner(event: event)),
           Padding(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(12),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-              Text(event.title, style: theme.textTheme.titleMedium, maxLines: 2, overflow: TextOverflow.ellipsis),
-              const SizedBox(height: 4),
-              Text('${event.artist} • ${event.category}', style: theme.textTheme.bodyMedium),
-              const SizedBox(height: 6),
-              Row(children: <Widget>[
-                const Icon(Icons.place_outlined, size: 16),
-                const SizedBox(width: 4),
-                Expanded(child: Text(event.venueName, maxLines: 1, overflow: TextOverflow.ellipsis)),
-              ]),
+              Text(event.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
               const SizedBox(height: 2),
-              Row(children: <Widget>[
-                const Icon(Icons.event_outlined, size: 16),
-                const SizedBox(width: 4),
-                Text('${wib.text} ${wib.abbr}'),
-              ]),
+              Text(event.venueName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppColors.sky, fontSize: 12)),
               const SizedBox(height: 8),
-              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: <Widget>[
-                Text(rupiah(event.priceIdr),
-                    style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.primary)),
-                if (event.soldOut)
-                  const Text('Sold out', style: TextStyle(color: Colors.red))
-                else
-                  Text('${event.stock} left', style: theme.textTheme.bodySmall),
+              Row(children: <Widget>[
+                const Icon(Icons.near_me, size: 14, color: AppColors.sun),
+                const SizedBox(width: 4),
+                Text('${km.toStringAsFixed(km < 10 ? 1 : 0)} km', style: const TextStyle(fontSize: 12)),
+                const Spacer(),
+                Text(rupiah(event.priceIdr), style: const TextStyle(color: AppColors.sun, fontWeight: FontWeight.w700, fontSize: 12)),
               ]),
             ]),
           ),
@@ -236,36 +391,30 @@ class _EventCard extends StatelessWidget {
   }
 }
 
-/// Banner event: pakai gambar jika ada, kalau tidak gradient berdasarkan kategori.
-class EventBanner extends StatelessWidget {
-  const EventBanner({super.key, required this.event, this.height = 160});
+class _SmallCard extends StatelessWidget {
+  const _SmallCard({required this.event, required this.onTap});
   final Event event;
-  final double height;
-
-  static const List<List<Color>> _palettes = <List<Color>>[
-    <Color>[Color(0xFF7C3AED), Color(0xFFEC4899)],
-    <Color>[Color(0xFF0EA5E9), Color(0xFF6366F1)],
-    <Color>[Color(0xFFF97316), Color(0xFFEF4444)],
-    <Color>[Color(0xFF10B981), Color(0xFF0EA5E9)],
-  ];
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final colors = _palettes[event.category.hashCode.abs() % _palettes.length];
-    final url = event.imageUrl;
-    return Container(
-      height: height,
-      width: double.infinity,
-      decoration: BoxDecoration(gradient: LinearGradient(colors: colors)),
-      child: url != null && url.startsWith('http')
-          ? Image.network(url, fit: BoxFit.cover, errorBuilder: (_, __, ___) => _fallback())
-          : _fallback(),
+    final p = zoneParts(event.startUtc, 'Asia/Jakarta');
+    return AppCard(
+      padding: EdgeInsets.zero,
+      onTap: onTap,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+        Expanded(child: SizedBox.expand(child: EventBanner(event: event))),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: <Widget>[
+            Text(event.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, height: 1.2)),
+            const SizedBox(height: 2),
+            Text('${p.day} ${p.month} • ${event.category}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppColors.sky, fontSize: 11)),
+            const SizedBox(height: 4),
+            Text(rupiah(event.priceIdr), style: const TextStyle(color: AppColors.sun, fontWeight: FontWeight.w700, fontSize: 12)),
+          ]),
+        ),
+      ]),
     );
   }
-
-  Widget _fallback() => Center(
-        child: Text(event.artist,
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-      );
 }

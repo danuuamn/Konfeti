@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../core/app_theme.dart';
 import '../../core/session.dart';
+import '../../core/widgets.dart';
 import '../home/home_page.dart';
 import '../tickets/my_tickets_page.dart';
 import 'shell_nav.dart';
@@ -55,10 +57,10 @@ class _Placeholder extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(title)),
+      appBar: AppBar(title: Text(title), actions: const <Widget>[RotateButton()]),
       body: Center(
         child: Column(mainAxisSize: MainAxisSize.min, children: <Widget>[
-          Icon(icon, size: 64, color: Theme.of(context).colorScheme.outline),
+          Icon(icon, size: 64, color: AppColors.skyDim),
           const SizedBox(height: 12),
           Text('$title coming soon', style: Theme.of(context).textTheme.titleMedium),
         ]),
@@ -74,13 +76,15 @@ class _ProfilePlaceholder extends StatelessWidget {
   Widget build(BuildContext context) {
     final user = Session.instance.user;
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile')),
+      appBar: AppBar(title: const Text('Profile'), actions: const <Widget>[RotateButton()]),
       body: Center(
         child: Column(mainAxisSize: MainAxisSize.min, children: <Widget>[
-          Text(user?['name']?.toString() ?? '-', style: Theme.of(context).textTheme.titleLarge),
-          Text(user?['email']?.toString() ?? ''),
+          const CircleAvatar(radius: 40, backgroundColor: AppColors.primary, child: Icon(Icons.person, size: 44, color: AppColors.sky)),
+          const SizedBox(height: 12),
+          Text(user?['name']?.toString() ?? '-', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+          Text(user?['email']?.toString() ?? '', style: const TextStyle(color: AppColors.sky)),
           const SizedBox(height: 16),
-          FilledButton.tonalIcon(
+          OutlinedButton.icon(
             onPressed: () => Session.instance.logout(),
             icon: const Icon(Icons.logout),
             label: const Text('Logout'),

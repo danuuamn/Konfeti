@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'alert_sound.dart';
+
 /// Hitung mundur sebelum sinyal darurat dikirim. Pop(true) = kirim, pop(false) = dibatalkan.
 class EmergencyCountdownDialog extends StatefulWidget {
   const EmergencyCountdownDialog({super.key, this.seconds = 5});
@@ -20,6 +22,7 @@ class _EmergencyCountdownDialogState extends State<EmergencyCountdownDialog> {
   void initState() {
     super.initState();
     HapticFeedback.heavyImpact();
+    AlertSound.instance.startSiren(); // sirene berbunyi selama hitung mundur
     _timer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (_left <= 1) {
         t.cancel();
@@ -34,6 +37,7 @@ class _EmergencyCountdownDialogState extends State<EmergencyCountdownDialog> {
   @override
   void dispose() {
     _timer?.cancel();
+    AlertSound.instance.stop(); // batal ATAU sudah terkirim: sirene berhenti
     super.dispose();
   }
 

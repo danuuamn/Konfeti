@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS events (
   end_time_utc TEXT NOT NULL,
   price_idr INTEGER NOT NULL,
   stock INTEGER NOT NULL,
-  image_url TEXT
+  image_url TEXT,
+  lineup TEXT
 )''',
   '''
 CREATE TABLE IF NOT EXISTS transactions (

@@ -1,4 +1,3 @@
-import 'dart:io';
 
 import 'package:konfeti_backend/src/db.dart';
 import 'package:konfeti_backend/src/env.dart';
@@ -27,6 +26,33 @@ List<List<Object?>> _events() => <List<Object?>>[
       ['Nadin Amizah Retro Night', 'Nadin Amizah', 'Indie', 'Concert Hall TBY, Yogyakarta', -7.8008, 110.3686, 0, _addDays(-10), _addDays(-9.9), 200000, 100],
     ];
 
+// Event demo dengan LINEUP lebih dari 1 artis. Kolom `artist` = headliner (dipakai kuis Spotify),
+// kolom `lineup` = semua artis dipisah koma.
+List<List<Object?>> _lineupEvents() => <List<Object?>>[
+      // [title, artist, lineup, category, venue, lat, lng, outdoor, start, end, price, stock]
+      ['Konfeti Indie Fest Yogyakarta', 'Hindia', 'Hindia, Feast, Nadin Amizah', 'Indie', 'Alun-Alun Utara, Yogyakarta', -7.8047, 110.3646, 1, _addDays(14), _addDays(14.25), 275000, 600],
+      ['Pop Legends Double Show', 'Raisa', 'Raisa, Tulus', 'Pop', 'Jogja Expo Center', -7.7981, 110.4086, 0, _addDays(18), _addDays(18.2), 500000, 250],
+    ];
+
+void _ensureLineupEvents(AppDb db) {
+  var added = 0;
+  for (final e in _lineupEvents()) {
+    final exists = db.one('SELECT id FROM events WHERE title=?', <Object?>[e[0]]);
+    if (exists != null) {
+      db.run('UPDATE events SET lineup=? WHERE id=?', <Object?>[e[2], exists['id']]);
+      continue;
+    }
+    db.run(
+      '''INSERT INTO events(title,artist,lineup,category,venue_name,latitude,longitude,is_outdoor,
+                      start_time_utc,end_time_utc,price_idr,stock)
+   VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
+      e,
+    );
+    added++;
+  }
+  print('Lineup demo events added: $added');
+}
+
 const List<List<Object?>> _promos = <List<Object?>>[
   ['KONFETI10', 'Welcome promo: 10% off your tickets', 10],
   ['STUDENT20', 'Student discount: 20% off', 20],
@@ -51,20 +77,20 @@ void main(List<String> args) {
 
   final count = db.one('SELECT COUNT(*) AS n FROM events')!['n'] as int;
   if (count > 0) {
-    print('Events table already has $count rows. Use "dart run bin/seed.dart --reset" to reseed.');
-    exit(0);
-  }
-
-  final events = _events();
-  db.transaction<void>(() {
-    for (final e in events) {
-      db.run(
-        '''INSERT INTO events(title,artist,category,venue_name,latitude,longitude,is_outdoor,
+    print('Events table already has $count rows (use "dart run bin/seed.dart --reset" to reseed).');
+  } else {
+    final events = _events();
+    db.transaction<void>(() {
+      for (final e in events) {
+        db.run(
+          '''INSERT INTO events(title,artist,category,venue_name,latitude,longitude,is_outdoor,
                       start_time_utc,end_time_utc,price_idr,stock)
    VALUES(?,?,?,?,?,?,?,?,?,?,?)''',
-        e,
-      );
-    }
-  });
-  print('Seeded ${events.length} events and ${_promos.length} promo codes.');
+          e,
+        );
+      }
+    });
+    print('Seeded ${events.length} events and ${_promos.length} promo codes.');
+  }
+  _ensureLineupEvents(db);
 }
