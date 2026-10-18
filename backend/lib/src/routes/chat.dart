@@ -8,7 +8,7 @@ import '../errors.dart';
 import '../web.dart';
 
 /// Memanggil Gemini lewat REST. Melempar [ApiError] dengan status HTTP dari Google.
-Future<String> _generate(String model, String instruction, String message) async {
+Future<String> _generate(String model, String instruction, List<Map<String, String>> turns) async {
   final resp = await http
       .post(
         Uri.parse('https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent'),
@@ -18,18 +18,14 @@ Future<String> _generate(String model, String instruction, String message) async
         },
         body: jsonEncode(<String, Object?>{
           'systemInstruction': <String, Object?>{
-            'parts': <Object?>[
-              <String, Object?>{'text': instruction},
-            ],
+            'parts': <Object?>[<String, Object?>{'text': instruction}],
           },
-          'contents': <Object?>[
-            <String, Object?>{
-              'role': 'user',
-              'parts': <Object?>[
-                <String, Object?>{'text': message},
-              ],
-            },
-          ],
+          'contents': turns
+              .map((t) => <String, Object?>{
+                    'role': t['role'],
+                    'parts': <Object?>[<String, Object?>{'text': t['text']}],
+                  })
+              .toList(),
         }),
       )
       .timeout(const Duration(seconds: 60));
@@ -83,7 +79,20 @@ void registerChat(Router r, AppDb db) {
     final instruction = 'You are a helpful assistant for a concert ticketing app called Konfeti. '
         'Reply in the same language the user writes in (Indonesian or English). Keep answers short. '
         'Use only this event data when answering about concerts (prices are in IDR): ${jsonEncode(events)}';
-
+    final turns = <Map<String, String>>[];
+    final h = c.bodyMap['history'];
+    if (h is List) {
+      final recent = h.length > 10 ? h.sublist(h.length - 10) : h;
+      for (final x in recent) {
+        if (x is! Map) continue;
+        final role = x['role'];
+        final text = x['text'];
+        if ((role != 'user' && role != 'model') || text is! String || text.trim().isEmpty) continue;
+        if (turns.isEmpty && role == 'model') continue; // percakapan harus dimulai dari user
+        turns.add(<String, String>{'role': role as String, 'text': text.length > 500 ? text.substring(0, 500) : text});
+      }
+    }
+    turns.add(<String, String>{'role': 'user', 'text': message});
     final primary = Env.get('GEMINI_MODEL', 'gemini-flash-latest');
     final fallback = Env.get('GEMINI_FALLBACK_MODEL', 'gemini-2.5-flash-lite');
     final attempts = <String>[primary, primary, fallback];
@@ -91,7 +100,7 @@ void registerChat(Router r, AppDb db) {
     Object? lastError;
     for (final name in attempts) {
       try {
-        final reply = await _generate(name, instruction, message);
+        final reply = await _generate(name, instruction, turns);
         await c.json(200, <String, Object?>{'reply': reply});
         return;
       } catch (e) {
