@@ -1,5 +1,6 @@
 package com.example.code_konfeti
 
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity : FlutterActivity()
+// local_auth (biometrik) membutuhkan FragmentActivity
+class MainActivity : FlutterFragmentActivity()

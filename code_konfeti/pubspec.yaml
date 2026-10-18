@@ -19,6 +19,7 @@ dependencies:
   image_picker: ^1.2.4
   intl: ^0.20.3
   latlong2: ^0.10.1
+  local_auth: ^2.3.0
   path: ^1.9.1
   qr_flutter: ^4.1.0
   sensors_plus: ^7.1.1

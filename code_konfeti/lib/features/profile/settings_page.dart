@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
 import '../../core/config.dart';
+import '../../core/session.dart';
 import '../../core/widgets.dart';
 import '../../services/local_db.dart';
 import '../../services/notification_service.dart';
@@ -39,6 +40,11 @@ class _SettingsPageState extends State<SettingsPage> {
     await LocalDb.instance.setBool(currentUserId(), NotificationService.settingEnabled, value);
     // saat dimatikan, pengingat lama dibatalkan; saat dinyalakan, dijadwalkan ulang
     await NotificationService.instance.syncReminders();
+  }
+
+  Future<void> _toggleBiometric(bool value) async {
+    final ok = await Session.instance.setBiometric(value);
+    if (!ok) _snack('Biometric setup was cancelled.');
   }
 
   Future<void> _testNotification() async {
@@ -102,7 +108,58 @@ class _SettingsPageState extends State<SettingsPage> {
             onTap: _clearChat,
           ),
         ]),
-        // TODO(Ilham): saklar "Biometric login" bisa ditambahkan di sini.
+        const SectionHeader('Security', padding: EdgeInsets.fromLTRB(0, 22, 0, 10)),
+        ListenableBuilder(
+          listenable: Session.instance,
+          builder: (context, _) {
+            final s = Session.instance;
+            return _group(<Widget>[
+              SwitchListTile(
+                secondary: const Icon(Icons.fingerprint_rounded),
+                value: s.bioEnabled,
+                onChanged: s.bioAvailable ? _toggleBiometric : null,
+                title: const Text('Biometric login (optional)'),
+                subtitle: Text(
+                  s.bioAvailable
+                      ? 'Sign in faster with your fingerprint or face.'
+                      : 'Not available on this device.',
+                  style: const TextStyle(color: AppColors.sky, fontSize: 12),
+                ),
+              ),
+              if (s.bioEnabled && s.availableMethods.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+                    const Text('Preferred method', style: TextStyle(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    Wrap(spacing: 8, children: <Widget>[
+                      for (final m in s.availableMethods)
+                        ChoiceChip(
+                          avatar: Icon(m == 'face' ? Icons.face_rounded : Icons.fingerprint_rounded, size: 18),
+                          label: Text(m == 'face' ? 'Face' : 'Fingerprint'),
+                          selected: s.bioMethod == m,
+                          selectedColor: AppColors.sun,
+                          onSelected: (_) => s.setBioMethod(m),
+                        ),
+                    ]),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Your phone shows the final prompt. If you registered both, it may offer either one.',
+                      style: TextStyle(fontSize: 12, color: AppColors.sky),
+                    ),
+                  ]),
+                ),
+              ListTile(
+                leading: const Icon(Icons.timer_outlined),
+                title: const Text('Auto sign-out'),
+                subtitle: Text(
+                  'After ${AppConfig.sessionTimeout.inMinutes} minutes without activity',
+                  style: const TextStyle(color: AppColors.sky, fontSize: 12),
+                ),
+              ),
+            ]);
+          },
+        ),
         const SectionHeader('About', padding: EdgeInsets.fromLTRB(0, 22, 0, 10)),
         _group(const <Widget>[
           ListTile(

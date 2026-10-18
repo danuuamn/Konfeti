@@ -6,6 +6,7 @@ import 'core/favorites.dart';
 import 'core/app_theme.dart';
 import 'core/navigation.dart';
 import 'core/session.dart';
+import 'core/session_guard.dart';
 import 'features/auth/login_page.dart';
 import 'features/shell/main_shell.dart';
 import 'services/notification_service.dart';
@@ -30,7 +31,7 @@ Future<void> main() async {
 
   ApiClient.instance.onUnauthorized = () {
     navigatorKey.currentState?.popUntil((r) => r.isFirst); // tutup halaman yang sedang terbuka
-    Session.instance.logout();
+    Session.instance.logout(expired: true);
   };
   await Favorites.load();
   await Session.instance.restore();
@@ -51,6 +52,7 @@ class KonfetiApp extends StatelessWidget {
       scaffoldMessengerKey: messengerKey,
       debugShowCheckedModeBanner: false,
       theme: buildTheme(),
+      builder: (context, child) => SessionGuard(child: child ?? const SizedBox.shrink()),
       home: ListenableBuilder(
         listenable: Session.instance,
         builder: (context, _) => Session.instance.loggedIn ? const MainShell() : const LoginPage(),

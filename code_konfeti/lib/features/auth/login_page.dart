@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
+import '../../core/config.dart';
 import '../../core/session.dart';
 import '../../core/widgets.dart';
 
@@ -22,6 +23,17 @@ class _LoginPageState extends State<LoginPage> {
   bool _busy = false;
 
   @override
+  void initState() {
+    super.initState();
+    // App dibuka dengan biometrik aktif -> langsung munculkan prompt sidik jari/wajah.
+    if (Session.instance.promptBiometric) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _biometric();
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _name.dispose();
     _email.dispose();
@@ -37,6 +49,17 @@ class _LoginPageState extends State<LoginPage> {
       } else {
         await Session.instance.login(_email.text.trim(), _password.text);
       }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _biometric() async {
+    setState(() => _busy = true);
+    try {
+      await Session.instance.loginWithBiometric();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
@@ -75,7 +98,36 @@ class _LoginPageState extends State<LoginPage> {
                       Text('Konfeti',
                           textAlign: TextAlign.center,
                           style: AppText.display(size: 38, color: AppColors.sun, weight: FontWeight.w700)),
-                      const SizedBox(height: 28),
+                      ListenableBuilder(
+                        listenable: Session.instance,
+                        builder: (context, _) {
+                          if (!Session.instance.sessionExpired) return const SizedBox(height: 28);
+                          return Container(
+                            margin: const EdgeInsets.only(top: 18, bottom: 6),
+                            padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
+                            decoration: BoxDecoration(
+                              color: AppColors.glass,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: AppColors.sun),
+                            ),
+                            child: Row(children: <Widget>[
+                              const Icon(Icons.timer_outlined, size: 20, color: AppColors.sun),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'Your session has ended (no activity for ${AppConfig.sessionTimeout.inMinutes} minutes, '
+                                  'or it expired). Please sign in again.',
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.close_rounded, size: 18),
+                                onPressed: Session.instance.clearSessionExpired,
+                              ),
+                            ]),
+                          );
+                        },
+                      ),
                       Text('Welcome to Konfeti', textAlign: TextAlign.center, style: AppText.display(size: 26)),
                       const SizedBox(height: 6),
                       const Text('Discover concerts, book tickets, and enjoy the show.',
@@ -103,6 +155,22 @@ class _LoginPageState extends State<LoginPage> {
                         style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
                         onPressed: _busy ? null : _submit,
                         child: Text(_busy ? 'Please wait...' : (_register ? 'Create account' : 'Login')),
+                      ),
+                      ListenableBuilder(
+                        listenable: Session.instance,
+                        builder: (context, _) {
+                          final s = Session.instance;
+                          if (!(s.hasBioToken && s.bioAvailable)) return const SizedBox.shrink();
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 10),
+                            child: OutlinedButton.icon(
+                              onPressed: _busy ? null : _biometric,
+                              icon: Icon(s.bioMethod == 'face' ? Icons.face_rounded : Icons.fingerprint_rounded),
+                              label: Text('Sign in with ${s.bioLabel}'),
+                              style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+                            ),
+                          );
+                        },
                       ),
                       TextButton(
                         onPressed: () => setState(() => _register = !_register),

@@ -14,5 +14,11 @@ class AppConfig {
   /// Detail tiket bisa dibuka mulai sekian lama sebelum event dimulai.
   static const Duration earlyAccess = Duration(hours: 2);
 
+  /// Tidak ada aktivitas selama ini -> otomatis logout.
+  static const Duration sessionTimeout = Duration(minutes: 10);
+
+  /// Peringatan "Are you still there?" muncul sekian lama sebelum logout.
+  static const Duration sessionWarning = Duration(seconds: 30);
+
   static const int maxQtyPerOrder = 5; // sama dengan batas di backend
 }
