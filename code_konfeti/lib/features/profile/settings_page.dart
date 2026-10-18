@@ -21,6 +21,7 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   void initState() {
     super.initState();
+    Session.instance.refreshBiometric();
     _load();
   }
 

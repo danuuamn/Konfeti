@@ -39,6 +39,17 @@ class Session extends ChangeNotifier {
 
   DateTime _lastSaved = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// Cek ulang ketersediaan biometrik (mis. setelah pengguna mendaftarkan sidik jari di pengaturan HP).
+  Future<void> refreshBiometric() async {
+    final avail = await _bio.isAvailable();
+    final methods = await _bio.availableMethods();
+    if (avail == bioAvailable && methods.join() == availableMethods.join()) return;
+    bioAvailable = avail;
+    availableMethods = methods;
+    if (methods.isNotEmpty && !methods.contains(bioMethod)) bioMethod = methods.first;
+    notifyListeners();
+  }
+
   Future<void> restore() async {
     bioAvailable = await _bio.isAvailable();
     bioEnabled = (await _storage.read(key: _kBioEnabled)) == 'true';
