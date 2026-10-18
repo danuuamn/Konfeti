@@ -8,8 +8,9 @@ import 'app_theme.dart';
 /// (tinggi nav 64 + jarak 12 + napas 16, ditambah inset sistem di bawah layar).
 double navBottomSpace(BuildContext context) => 92 + MediaQuery.viewPaddingOf(context).bottom;
 
-/// Kartu kaca: isi translucent + border tipis. `blur` hanya untuk elemen kecil/jarang
-/// (nav, hero, panel CTA); jangan dipakai di banyak item list karena berat di HP biasa.
+/// Kartu kaca: kilau tipis dari kiri-atas, border halus, dan (opsional) blur nyata di belakangnya.
+/// `blur` dipakai untuk elemen yang jumlahnya sedikit (panel, form, tab, nav); untuk banyak item
+/// berurutan cukup tanpa blur supaya tetap ringan di HP biasa.
 class GlassCard extends StatelessWidget {
   const GlassCard({
     super.key,
@@ -27,6 +28,8 @@ class GlassCard extends StatelessWidget {
   final VoidCallback? onTap;
   final EdgeInsetsGeometry padding;
   final EdgeInsetsGeometry margin;
+
+  /// Jika diisi, kartu memakai warna solid ini (tanpa kilau).
   final Color? color;
   final double radius;
   final bool highlight;
@@ -35,35 +38,117 @@ class GlassCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final borderRadius = BorderRadius.circular(radius);
-    Widget card = Material(
-      color: color ?? AppColors.glass,
+    Widget box = Container(
       clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
+      decoration: BoxDecoration(
         borderRadius: borderRadius,
-        side: BorderSide(color: highlight ? AppColors.glow : AppColors.glassBorder, width: highlight ? 1.2 : 1),
+        color: color,
+        gradient: color == null
+            ? const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: <Color>[AppColors.glassSheen, AppColors.glass],
+              )
+            : null,
+        border: Border.all(color: highlight ? AppColors.glow : AppColors.glassBorder, width: highlight ? 1.2 : 1),
       ),
-      child: InkWell(onTap: onTap, child: Padding(padding: padding, child: child)),
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(onTap: onTap, child: Padding(padding: padding, child: child)),
+      ),
     );
     if (blur) {
-      card = ClipRRect(
+      box = ClipRRect(
         borderRadius: borderRadius,
-        child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14), child: card),
+        child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14), child: box),
       );
     }
     if (highlight) {
-      card = DecoratedBox(
+      box = DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: borderRadius,
           boxShadow: const <BoxShadow>[BoxShadow(color: Color(0x59006199), blurRadius: 24, spreadRadius: -4)],
         ),
-        child: card,
+        child: box,
       );
     }
-    return Padding(padding: margin, child: card);
+    return Padding(padding: margin, child: box);
   }
 }
 
-/// Latar layar: navy dengan cahaya biru halus di pojok kiri atas.
+/// Chip kecil berlatar kaca untuk di atas foto (kategori, jarak, status).
+class GlassChip extends StatelessWidget {
+  const GlassChip(this.label, {super.key, this.icon, this.iconColor});
+  final String label;
+  final IconData? icon;
+  final Color? iconColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(999),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+        child: Container(
+          height: 28,
+          padding: const EdgeInsets.symmetric(horizontal: 11),
+          decoration: BoxDecoration(
+            color: const Color(0x660A192F),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: AppColors.glassBorder),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: <Widget>[
+            if (icon != null) ...<Widget>[Icon(icon, size: 14, color: iconColor ?? AppColors.sky), const SizedBox(width: 5)],
+            Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+/// Logo Konfeti tanpa kotak: gambar transparan dengan pendar putih yang mengikuti bentuk logo
+/// (bukan latar putih persegi), supaya garis biru tua logo tetap terbaca di latar navy.
+/// Berkas gambar: assets/images/konfeti_logo.png (rasio ~1.2 : 1).
+class KonfetiLogo extends StatelessWidget {
+  const KonfetiLogo({super.key, this.size = 56});
+
+  /// Tinggi logo; lebarnya mengikuti rasio gambar.
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final w = size * 1.2;
+    Widget img() => Image.asset(
+          'assets/images/konfeti_logo.png',
+          width: w,
+          height: size,
+          fit: BoxFit.contain,
+          semanticLabel: 'Konfeti logo',
+          errorBuilder: (_, __, ___) =>
+              Icon(Icons.confirmation_number_rounded, size: size * 0.7, color: AppColors.sun),
+        );
+    return SizedBox(
+      width: w,
+      height: size,
+      child: Stack(alignment: Alignment.center, clipBehavior: Clip.none, children: <Widget>[
+        // pendar putih lebar, lalu inti pendar yang lebih rapat
+        ImageFiltered(
+          imageFilter: ImageFilter.blur(sigmaX: size * 0.22, sigmaY: size * 0.22),
+          child: ColorFiltered(colorFilter: const ColorFilter.mode(Color(0x73FFFFFF), BlendMode.srcIn), child: img()),
+        ),
+        ImageFiltered(
+          imageFilter: ImageFilter.blur(sigmaX: size * 0.05, sigmaY: size * 0.05),
+          child: ColorFiltered(colorFilter: const ColorFilter.mode(Color(0x8CFFFFFF), BlendMode.srcIn), child: img()),
+        ),
+        img(),
+      ]),
+    );
+  }
+}
+
+/// Latar layar: navy dengan tiga pendar warna palet (biru dan sedikit kuning) agar kaca punya sesuatu
+/// untuk dibiaskan. Hanya memakai primary dan sun yang sudah ada.
 class AppBackground extends StatelessWidget {
   const AppBackground({super.key, required this.child});
   final Widget child;
@@ -71,19 +156,32 @@ class AppBackground extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Stack(fit: StackFit.expand, children: <Widget>[
-      const IgnorePointer(
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: RadialGradient(
-              center: Alignment(-0.9, -1.0),
-              radius: 1.1,
-              colors: <Color>[Color(0x660B3A66), Color(0x000B3A66)],
-            ),
-          ),
-        ),
-      ),
+      const Positioned(top: -150, left: -130, child: _Glow(size: 440, color: AppColors.primary, alpha: 140)),
+      const Positioned(top: 320, right: -170, child: _Glow(size: 400, color: AppColors.primary, alpha: 80)),
+      const Positioned(bottom: -140, left: -70, child: _Glow(size: 340, color: AppColors.sun, alpha: 26)),
       child,
     ]);
+  }
+}
+
+class _Glow extends StatelessWidget {
+  const _Glow({required this.size, required this.color, required this.alpha});
+  final double size;
+  final Color color;
+  final int alpha;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(colors: <Color>[color.withAlpha(alpha), color.withAlpha(0)]),
+        ),
+      ),
+    );
   }
 }
 
@@ -147,7 +245,11 @@ class EmptyState extends StatelessWidget {
             height: 88,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: AppColors.glass,
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: <Color>[AppColors.glassSheen, AppColors.glass],
+              ),
               border: Border.all(color: AppColors.glassBorder),
             ),
             child: Icon(icon, size: 40, color: AppColors.skyDim),

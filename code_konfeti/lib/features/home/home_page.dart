@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -38,6 +39,7 @@ class _HomePageState extends State<HomePage> {
     'start': 'Soonest',
     'price_asc': 'Price: low to high',
     'price_desc': 'Price: high to low',
+    'nearest': 'Nearest to me',
   };
 
   @override
@@ -90,7 +92,7 @@ class _HomePageState extends State<HomePage> {
     try {
       final data = await ApiClient.instance.get('/api/events', query: <String, String>{
         'q': _search.text.trim(),
-        'sort': _sort,
+        'sort': _sort == 'nearest' ? 'start' : _sort, // "terdekat" diurutkan di app, berdasarkan lokasi device
         if (_category != null) 'category': _category!,
       }) as List;
       final list = data
@@ -131,7 +133,8 @@ class _HomePageState extends State<HomePage> {
             child: CustomScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: <Widget>[
-                SliverToBoxAdapter(child: _header()),
+                SliverToBoxAdapter(child: _greeting()),
+                SliverPersistentHeader(pinned: true, delegate: _PinnedControls(child: _controls())),
                 ..._sections(),
               ],
             ),
@@ -141,11 +144,14 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _header() {
+  /// Bagian atas yang ikut ter-scroll: logo, sapaan.
+  Widget _greeting() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 0, 0),
+      padding: const EdgeInsets.fromLTRB(16, 8, 0, 12),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
         Row(children: <Widget>[
+          const KonfetiLogo(size: 46),
+          const SizedBox(width: 10),
           Expanded(
             child: Text('Konfeti', style: AppText.display(size: 22, color: AppColors.sun, weight: FontWeight.w700)),
           ),
@@ -162,7 +168,15 @@ class _HomePageState extends State<HomePage> {
           padding: EdgeInsets.only(right: 16),
           child: Text('Find your next concert', style: TextStyle(color: AppColors.sky, fontSize: 14)),
         ),
-        const SizedBox(height: 16),
+      ]),
+    );
+  }
+
+  /// Search + sort + filter kategori: di-pin di atas (tidak ikut scroll).
+  Widget _controls() {
+    return Padding(
+      padding: const EdgeInsets.only(left: 16),
+      child: Column(mainAxisSize: MainAxisSize.min, children: <Widget>[
         Padding(
           padding: const EdgeInsets.only(right: 16),
           child: Row(children: <Widget>[
@@ -209,6 +223,14 @@ class _HomePageState extends State<HomePage> {
               ),
               onSelected: (v) {
                 setState(() => _sort = v);
+                if (v == 'nearest') {
+                  if (_pos == null) {
+                    _loadLocation(); // minta izin/ambil lokasi; daftar otomatis terurut begitu lokasi didapat
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Getting your location… allow location access to sort by distance.')));
+                  }
+                  return; // data sama, urutan dihitung di app
+                }
                 _load();
               },
               itemBuilder: (_) => _sortLabels.entries
@@ -220,13 +242,21 @@ class _HomePageState extends State<HomePage> {
               child: Container(
                 width: 48,
                 height: 48,
-                decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-                child: const Icon(Icons.tune_rounded, color: AppColors.ink),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: <Color>[AppColors.glassSheen, AppColors.glass],
+                  ),
+                  border: Border.all(color: AppColors.glassBorder),
+                ),
+                child: const Icon(Icons.tune_rounded, color: AppColors.sun),
               ),
             ),
           ]),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 12),
         SizedBox(
           height: 38,
           child: ListView(
@@ -299,10 +329,21 @@ class _HomePageState extends State<HomePage> {
       ];
     }
 
-    final live = _events.where((e) => e.isLive).toList();
-    final hero = live.isNotEmpty ? live.first : _events.first;
-    final nearby = _events.where((e) => _km(e) != null).toList()..sort((a, b) => _km(a)!.compareTo(_km(b)!));
-    final upcoming = _events.where((e) => e.id != hero.id).toList();
+    // Mode "Nearest to me": urut berdasarkan jarak dari device; event tanpa koordinat ditaruh paling akhir.
+    final list = List<Event>.of(_events);
+    if (_sort == 'nearest' && _pos != null) {
+      list.sort((a, b) {
+        final ka = _km(a), kb = _km(b);
+        if (ka == null && kb == null) return 0;
+        if (ka == null) return 1;
+        if (kb == null) return -1;
+        return ka.compareTo(kb);
+      });
+    }
+    final live = list.where((e) => e.isLive).toList();
+    final hero = live.isNotEmpty ? live.first : list.first;
+    final nearby = list.where((e) => _km(e) != null).toList()..sort((a, b) => _km(a)!.compareTo(_km(b)!));
+    final upcoming = list.where((e) => e.id != hero.id).toList();
     final width = MediaQuery.sizeOf(context).width;
     final columns = width > 800 ? 4 : (width > 520 ? 3 : 2);
 
@@ -342,7 +383,7 @@ class _HomePageState extends State<HomePage> {
               crossAxisCount: columns,
               mainAxisSpacing: 12,
               crossAxisSpacing: 12,
-              childAspectRatio: 0.8,
+              childAspectRatio: 0.74,
             ),
             delegate: SliverChildBuilderDelegate(
               (_, i) => _SmallCard(event: upcoming[i], onTap: () => _open(upcoming[i], 'grid-${upcoming[i].id}')),
@@ -353,6 +394,61 @@ class _HomePageState extends State<HomePage> {
       ] else
         SliverToBoxAdapter(child: SizedBox(height: navBottomSpace(context))),
     ];
+  }
+}
+
+/// Delegate untuk header yang menempel (pinned): latar kaca blur supaya konten yang lewat di bawahnya samar.
+class _PinnedControls extends SliverPersistentHeaderDelegate {
+  _PinnedControls({required this.child});
+  final Widget child;
+
+  static const double _extent = 118;
+
+  @override
+  double get minExtent => _extent;
+  @override
+  double get maxExtent => _extent;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+        child: Container(
+          color: AppColors.bg.withAlpha(overlapsContent ? 214 : 0),
+          padding: const EdgeInsets.only(top: 6, bottom: 10),
+          alignment: Alignment.center,
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _PinnedControls oldDelegate) => true;
+}
+
+/// Lapisan teks di atas foto: transparan di atas, makin pekat ke bawah, jadi wajah artis tetap terlihat.
+/// Tingginya mengikuti isi (sekitar seperempat foto).
+class _PosterOverlay extends StatelessWidget {
+  const _PosterOverlay({required this.padding, required this.child});
+  final EdgeInsetsGeometry padding;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: padding,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: <Color>[Color(0x000A192F), Color(0xB30A192F), Color(0xE60A192F)],
+          stops: <double>[0, 0.55, 1],
+        ),
+      ),
+      child: child,
+    );
   }
 }
 
@@ -373,53 +469,47 @@ class _HeroCard extends StatelessWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(24),
         child: SizedBox(
-          height: 220,
+          height: 350,
           child: Stack(fit: StackFit.expand, children: <Widget>[
             EventBanner(event: event, heroTag: 'hero-${event.id}'),
-            const DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.bottomCenter,
-                  end: Alignment.topCenter,
-                  colors: <Color>[Color(0xF0050D1A), Color(0x00050D1A)],
-                  stops: <double>[0, 0.85],
-                ),
-              ),
+            Positioned(
+              left: 12,
+              top: 12,
+              child: Tag(live ? 'LIVE NOW' : 'FEATURED',
+                  icon: live ? Icons.circle : Icons.star_rounded, color: live ? AppColors.danger : AppColors.butter),
             ),
             Positioned(
-              left: 16,
-              right: 16,
-              bottom: 16,
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: <Widget>[
-                Tag(live ? 'LIVE NOW' : 'FEATURED',
-                    icon: live ? Icons.circle : Icons.star_rounded, color: live ? AppColors.danger : AppColors.butter),
-                const SizedBox(height: 8),
-                Row(crossAxisAlignment: CrossAxisAlignment.end, children: <Widget>[
-                  Expanded(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: <Widget>[
-                      Text(event.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppText.display(size: 22, height: 1.15)),
-                      const SizedBox(height: 4),
-                      Text('${event.artistLabel} • ${p.date}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: AppColors.sky, fontSize: 12)),
-                      const SizedBox(height: 4),
-                      Text(rupiah(event.priceIdr),
-                          style: const TextStyle(color: AppColors.sun, fontWeight: FontWeight.w800, fontSize: 16)),
-                    ]),
-                  ),
-                  const SizedBox(width: 12),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    decoration: const BoxDecoration(color: AppColors.sun, shape: BoxShape.rectangle, borderRadius: BorderRadius.all(Radius.circular(999))),
-                    child: Text(event.soldOut ? 'Sold out' : 'Get Tickets',
-                        style: const TextStyle(color: AppColors.ink, fontWeight: FontWeight.w800, fontSize: 12)),
-                  ),
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: _PosterOverlay(
+                padding: const EdgeInsets.fromLTRB(16, 36, 14, 14),
+                child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+                  Text(event.title,
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.display(size: 21, height: 1.15)),
+                  const SizedBox(height: 6),
+                  Row(crossAxisAlignment: CrossAxisAlignment.end, children: <Widget>[
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: <Widget>[
+                        Text('${event.artistLabel} • ${p.date}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: AppColors.sky, fontSize: 12)),
+                        const SizedBox(height: 3),
+                        Text('From ${rupiah(event.priceIdr)}',
+                            style: const TextStyle(color: AppColors.sun, fontWeight: FontWeight.w800, fontSize: 16)),
+                      ]),
+                    ),
+                    const SizedBox(width: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      decoration: const BoxDecoration(color: AppColors.sun, borderRadius: BorderRadius.all(Radius.circular(999))),
+                      child: Text(event.soldOut ? 'Sold out' : 'Get Tickets',
+                          style: const TextStyle(color: AppColors.ink, fontWeight: FontWeight.w800, fontSize: 12)),
+                    ),
+                  ]),
                 ]),
-              ]),
+              ),
             ),
             const Positioned.fill(
               child: IgnorePointer(
@@ -452,23 +542,30 @@ class _MediumCard extends StatelessWidget {
       child: AppCard(
         padding: EdgeInsets.zero,
         onTap: onTap,
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-          SizedBox(height: 112, width: double.infinity, child: EventBanner(event: event, heroTag: 'near-${event.id}')),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-              Text(event.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-              const SizedBox(height: 2),
-              Text(event.venueName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppColors.sky, fontSize: 12)),
-              const SizedBox(height: 8),
-              Row(children: <Widget>[
-                const Icon(Icons.near_me, size: 14, color: AppColors.sun),
-                const SizedBox(width: 4),
-                Text('${km.toStringAsFixed(km < 10 ? 1 : 0)} km', style: const TextStyle(fontSize: 12)),
-                const Spacer(),
-                Text(rupiah(event.priceIdr), style: const TextStyle(color: AppColors.sun, fontWeight: FontWeight.w800, fontSize: 12)),
+        child: Stack(fit: StackFit.expand, children: <Widget>[
+          EventBanner(event: event, heroTag: 'near-${event.id}'),
+          Positioned(
+              left: 8,
+              top: 8,
+              child: GlassChip('${km.toStringAsFixed(km < 10 ? 1 : 0)} km', icon: Icons.near_me, iconColor: AppColors.sun)),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: _PosterOverlay(
+              padding: const EdgeInsets.fromLTRB(12, 26, 12, 11),
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+                Text(event.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+                const SizedBox(height: 3),
+                Row(children: <Widget>[
+                  Expanded(
+                    child: Text(event.venueName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppColors.sky, fontSize: 11)),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(rupiah(event.priceIdr), style: const TextStyle(color: AppColors.sun, fontWeight: FontWeight.w800, fontSize: 12)),
+                ]),
               ]),
-            ]),
+            ),
           ),
         ]),
       ),
@@ -487,17 +584,26 @@ class _SmallCard extends StatelessWidget {
     return AppCard(
       padding: EdgeInsets.zero,
       onTap: onTap,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-        Expanded(child: SizedBox.expand(child: EventBanner(event: event, heroTag: 'grid-${event.id}'))),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: <Widget>[
-            Text(event.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, height: 1.2)),
-            const SizedBox(height: 2),
-            Text('${p.day} ${p.month} • ${event.category}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppColors.sky, fontSize: 11)),
-            const SizedBox(height: 4),
-            Text(rupiah(event.priceIdr), style: const TextStyle(color: AppColors.sun, fontWeight: FontWeight.w800, fontSize: 12)),
-          ]),
+      child: Stack(fit: StackFit.expand, children: <Widget>[
+        EventBanner(event: event, heroTag: 'grid-${event.id}'),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: _PosterOverlay(
+            padding: const EdgeInsets.fromLTRB(10, 24, 10, 10),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+              Text(event.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+              const SizedBox(height: 3),
+              Row(children: <Widget>[
+                Expanded(
+                  child: Text('${p.day} ${p.month}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppColors.sky, fontSize: 11)),
+                ),
+                const SizedBox(width: 4),
+                Text(rupiah(event.priceIdr), style: const TextStyle(color: AppColors.sun, fontWeight: FontWeight.w800, fontSize: 12)),
+              ]),
+            ]),
+          ),
         ),
       ]),
     );

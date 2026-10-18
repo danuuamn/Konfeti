@@ -17,13 +17,14 @@ class AppColors {
   static const Color skyFaint = Color(0x338ACFF8);
   static const Color whiteFaint = Color(0x1FFFFFFF);
 
-  // ---- Token baru (Night Confetti) ----
-  static const Color glass = Color(0x990E2340); // isi kartu kaca (60%)
-  static const Color glassHigh = Color(0xB312305A); // kartu terangkat / nav melayang (70%)
-  static const Color glassBorder = Color(0x338ACFF8); // border tipis kartu kaca (20%)
-  static const Color glow = Color(0x8C006199); // border + bayangan kartu sorot (55%)
+  // ---- Token kaca (Night Confetti) ----
+  // Semua diturunkan dari warna palet yang sudah ada (bgAlt, sky, primary): hanya transparansinya yang diatur.
+  static const Color glass = Color(0x8C0E2340); // bgAlt 55%: isi kartu kaca
+  static const Color glassHigh = Color(0xCC0E2340); // bgAlt 80%: nav melayang, panel CTA
+  static const Color glassSheen = Color(0x268ACFF8); // sky 15%: kilau sudut kiri-atas kartu kaca
+  static const Color glassBorder = Color(0x388ACFF8); // sky 22%: border tipis kartu kaca
+  static const Color glow = Color(0x8C006199); // primary 55%: border + bayangan kartu sorot
   static const Color danger = Color(0xFFFF6B6B); // error, LIVE
-  static const Color bgGlow = Color(0xFF0B3A66); // cahaya sudut atas layar
 }
 
 /// Gaya teks khusus. Seluruh app memakai satu font: Plus Jakarta Sans (tanpa italic/serif).
@@ -166,7 +167,7 @@ ThemeData buildTheme() {
       ),
     ),
     snackBarTheme: SnackBarThemeData(
-      backgroundColor: const Color(0xFF12305A),
+      backgroundColor: AppColors.bgAlt,
       contentTextStyle: GoogleFonts.plusJakartaSans(color: Colors.white, fontSize: 14),
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(

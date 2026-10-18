@@ -30,6 +30,20 @@ class EventDetailPage extends StatefulWidget {
 class _EventDetailPageState extends State<EventDetailPage> {
   late Event _event = widget.event;
   String? _artist; // artis yang dipilih di lineup
+  int? _tierId; // kategori tiket yang dipilih (null = otomatis kategori pertama yang masih tersedia)
+
+  /// Kategori terpilih; jika belum ada pilihan, ambil yang pertama masih tersedia.
+  TicketTier? get _tier {
+    final tiers = _event.tiers;
+    if (tiers.isEmpty) return null;
+    for (final t in tiers) {
+      if (t.id == _tierId && !t.soldOut) return t;
+    }
+    for (final t in tiers) {
+      if (!t.soldOut) return t;
+    }
+    return tiers.first;
+  }
 
   @override
   void initState() {
@@ -48,7 +62,9 @@ class _EventDetailPageState extends State<EventDetailPage> {
   @override
   Widget build(BuildContext context) {
     final e = _event;
-    final canBuy = !e.soldOut && !e.hasEnded;
+    final tier = _tier;
+    final canBuy = !e.soldOut && !e.hasEnded && (tier == null || !tier.soldOut);
+    final price = tier?.priceIdr ?? e.priceIdr;
     final selected = e.artists.contains(_artist) ? _artist! : e.artists.first;
     final p = zoneParts(e.startUtc, 'Asia/Jakarta');
 
@@ -80,8 +96,20 @@ class _EventDetailPageState extends State<EventDetailPage> {
                 ),
               ]),
             ),
-            const SizedBox(height: 16),
-            AppCard(
+            if (e.tiers.isNotEmpty) ...<Widget>[
+              const SectionHeader('Choose category', padding: EdgeInsets.fromLTRB(0, 24, 0, 12)),
+              for (final t in e.tiers) ...<Widget>[
+                _TierTile(
+                  tier: t,
+                  selected: t.id == tier?.id,
+                  onTap: t.soldOut ? null : () => setState(() => _tierId = t.id),
+                ),
+                const SizedBox(height: 10),
+              ],
+            ],
+            const SizedBox(height: 6),
+            GlassCard(
+              blur: true,
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
                 const Text('About this event', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 6),
@@ -141,15 +169,16 @@ class _EventDetailPageState extends State<EventDetailPage> {
                 padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
                 child: Row(children: <Widget>[
                   Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: <Widget>[
-                    const Text('Start from', style: TextStyle(color: AppColors.sky, fontSize: 12)),
-                    Text(rupiah(e.priceIdr), style: const TextStyle(color: AppColors.sun, fontSize: 20, fontWeight: FontWeight.w800)),
+                    Text(tier == null ? 'Start from' : tier.name,
+                        style: const TextStyle(color: AppColors.sky, fontSize: 12)),
+                    Text(rupiah(price), style: const TextStyle(color: AppColors.sun, fontSize: 20, fontWeight: FontWeight.w800)),
                   ]),
                   const SizedBox(width: 16),
                   Expanded(
                     child: FilledButton(
                       style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
                       onPressed: canBuy
-                          ? () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => CheckoutPage(event: e)))
+                          ? () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => CheckoutPage(event: e, tier: tier)))
                           : null,
                       child: Text(e.hasEnded ? 'Event ended' : (e.soldOut ? 'Sold out' : 'Buy Ticket')),
                     ),
@@ -254,6 +283,49 @@ class _InfoChip extends StatelessWidget {
           ]),
         ),
       ]),
+    );
+  }
+}
+
+
+/// Satu baris pilihan kategori tiket (CAT 1, CAT 2, ...). Terpilih = border sorot + radio kuning.
+class _TierTile extends StatelessWidget {
+  const _TierTile({required this.tier, required this.selected, required this.onTap});
+  final TicketTier tier;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final off = tier.soldOut;
+    return Opacity(
+      opacity: off ? 0.5 : 1,
+      child: GlassCard(
+        onTap: onTap,
+        highlight: selected,
+        radius: 18,
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        child: Row(children: <Widget>[
+          Icon(selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+              color: selected ? AppColors.sun : AppColors.skyDim, size: 22),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+              Text(tier.name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+              if (tier.description.isNotEmpty) ...<Widget>[
+                const SizedBox(height: 2),
+                Text(tier.description,
+                    maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppColors.sky, fontSize: 12)),
+              ],
+              const SizedBox(height: 4),
+              Text(off ? 'Sold out' : '${tier.stock} left',
+                  style: TextStyle(color: off ? AppColors.danger : AppColors.skyDim, fontSize: 11, fontWeight: FontWeight.w600)),
+            ]),
+          ),
+          const SizedBox(width: 10),
+          Text(rupiah(tier.priceIdr), style: const TextStyle(color: AppColors.sun, fontSize: 15, fontWeight: FontWeight.w800)),
+        ]),
+      ),
     );
   }
 }

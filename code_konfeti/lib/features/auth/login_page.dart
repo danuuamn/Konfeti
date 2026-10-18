@@ -83,16 +83,7 @@ class _LoginPageState extends State<LoginPage> {
                       const Align(alignment: Alignment.centerRight, child: RotateButton()),
                       const SizedBox(height: 8),
                       Center(
-                        child: Container(
-                          width: 88,
-                          height: 88,
-                          decoration: const BoxDecoration(
-                            color: AppColors.sun,
-                            shape: BoxShape.circle,
-                            boxShadow: <BoxShadow>[BoxShadow(color: Color(0x66FFD444), blurRadius: 32, spreadRadius: -4)],
-                          ),
-                          child: const Icon(Icons.celebration, size: 44, color: AppColors.ink),
-                        ),
+                        child: KonfetiLogo(size: 124),
                       ),
                       const SizedBox(height: 14),
                       Text('Konfeti',
@@ -133,7 +124,11 @@ class _LoginPageState extends State<LoginPage> {
                       const Text('Discover concerts, book tickets, and enjoy the show.',
                           textAlign: TextAlign.center, style: TextStyle(color: AppColors.sky)),
                       const SizedBox(height: 28),
-                      if (_register) ...<Widget>[
+                      GlassCard(
+                        blur: true,
+                        padding: const EdgeInsets.all(16),
+                        child: Column(children: <Widget>[
+                          if (_register) ...<Widget>[
                         TextField(
                             controller: _name,
                             decoration: const InputDecoration(labelText: 'Name', prefixIcon: Icon(Icons.person_outline))),
@@ -149,6 +144,8 @@ class _LoginPageState extends State<LoginPage> {
                           obscureText: true,
                           decoration: const InputDecoration(
                               labelText: 'Password (min. 8 characters)', prefixIcon: Icon(Icons.lock_outline))),
+                        ]),
+                      ),
                       const Spacer(),
                       const SizedBox(height: 24),
                       FilledButton(

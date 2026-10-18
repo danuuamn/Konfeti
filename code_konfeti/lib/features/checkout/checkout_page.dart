@@ -1,12 +1,14 @@
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
 import '../../core/app_theme.dart';
 import '../../core/config.dart';
 import '../../core/formatters.dart';
+import '../../core/session.dart';
 import '../../core/widgets.dart';
 import '../../models/event.dart';
 import '../../services/time_zones.dart';
@@ -14,8 +16,11 @@ import '../shell/shell_nav.dart';
 
 /// Payment: jumlah tiket, kode promo, konversi mata uang (IDR/USD/EUR/JPY/SGD/MYR), lalu bayar.
 class CheckoutPage extends StatefulWidget {
-  const CheckoutPage({super.key, required this.event});
+  const CheckoutPage({super.key, required this.event, this.tier});
   final Event event;
+
+  /// Kategori tiket yang dipilih di halaman detail (null = event tanpa kategori).
+  final TicketTier? tier;
 
   @override
   State<CheckoutPage> createState() => _CheckoutPageState();
@@ -23,6 +28,12 @@ class CheckoutPage extends StatefulWidget {
 
 class _CheckoutPageState extends State<CheckoutPage> {
   final TextEditingController _promo = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  final TextEditingController _nik = TextEditingController();
+  late final TextEditingController _fullName =
+      TextEditingController(text: Session.instance.user?['name']?.toString() ?? '');
+  final TextEditingController _age = TextEditingController();
+  String? _gender; // 'Male' | 'Female'
   int _qty = 1;
   int _discountPercent = 0;
   String? _appliedCode;
@@ -42,6 +53,9 @@ class _CheckoutPageState extends State<CheckoutPage> {
   @override
   void dispose() {
     _promo.dispose();
+    _nik.dispose();
+    _fullName.dispose();
+    _age.dispose();
     super.dispose();
   }
 
@@ -59,9 +73,10 @@ class _CheckoutPageState extends State<CheckoutPage> {
   }
 
   // Rumus sama dengan backend: harga satuan dibulatkan dulu, baru dikali qty.
-  int get _unit => ((widget.event.priceIdr * (100 - _discountPercent)) / 100).round();
+  int get _basePrice => widget.tier?.priceIdr ?? widget.event.priceIdr;
+  int get _unit => ((_basePrice * (100 - _discountPercent)) / 100).round();
   int get _total => _unit * _qty;
-  int get _maxQty => widget.event.stock.clamp(1, AppConfig.maxQtyPerOrder);
+  int get _maxQty => (widget.tier?.stock ?? widget.event.stock).clamp(1, AppConfig.maxQtyPerOrder);
 
   Future<void> _applyPromo() async {
     final code = _promo.text.trim().toUpperCase();
@@ -83,11 +98,23 @@ class _CheckoutPageState extends State<CheckoutPage> {
   }
 
   Future<void> _pay() async {
+    // Data diri wajib valid sebelum transaksi dibuat.
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please complete your personal data.')));
+      return;
+    }
     setState(() => _busy = true);
     try {
       final res = await ApiClient.instance.post('/api/orders', <String, Object?>{
         'event_id': widget.event.id,
         'qty': _qty,
+        if (widget.tier != null) 'tier_id': widget.tier!.id,
+        'buyer': <String, Object?>{
+          'nik': _nik.text.trim(),
+          'name': _fullName.text.trim(),
+          'age': int.parse(_age.text.trim()),
+          'gender': _gender,
+        },
         if (_appliedCode != null) 'promo_code': _appliedCode,
       }) as Map;
       final orderId = res['order_id'] as String;
@@ -182,6 +209,67 @@ class _CheckoutPageState extends State<CheckoutPage> {
               ),
             ]),
           ),
+          const SectionHeader('Personal data', padding: EdgeInsets.fromLTRB(0, 20, 0, 10)),
+          GlassCard(
+            blur: true,
+            child: Form(
+              key: _formKey,
+              child: Column(children: <Widget>[
+                TextFormField(
+                  controller: _nik,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: <TextInputFormatter>[FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(16)],
+                  decoration: const InputDecoration(labelText: 'NIK (16 digits)', prefixIcon: Icon(Icons.badge_outlined)),
+                  validator: (v) => RegExp(r'^\d{16}$').hasMatch((v ?? '').trim()) ? null : 'NIK must be 16 digits',
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _fullName,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(labelText: 'Full name (as on ID)', prefixIcon: Icon(Icons.person_outline)),
+                  validator: (v) => (v ?? '').trim().length < 3 ? 'Please enter your full name' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _age,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: <TextInputFormatter>[FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(3)],
+                  decoration: const InputDecoration(labelText: 'Age', prefixIcon: Icon(Icons.cake_outlined)),
+                  validator: (v) {
+                    final n = int.tryParse((v ?? '').trim());
+                    return (n == null || n < 5 || n > 100) ? 'Enter a valid age' : null;
+                  },
+                ),
+                const SizedBox(height: 12),
+                FormField<String>(
+                  validator: (_) => _gender == null ? 'Please choose a gender' : null,
+                  builder: (state) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+                    const Text('Gender', style: TextStyle(color: AppColors.sky, fontSize: 13)),
+                    const SizedBox(height: 8),
+                    Row(children: <Widget>[
+                      for (final g in const <String>['Male', 'Female']) ...<Widget>[
+                        CategoryPill(
+                          label: g,
+                          icon: g == 'Male' ? Icons.male_rounded : Icons.female_rounded,
+                          selected: _gender == g,
+                          onTap: () {
+                            setState(() => _gender = g);
+                            state.didChange(g);
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                    ]),
+                    if (state.hasError)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(state.errorText!, style: const TextStyle(color: AppColors.danger, fontSize: 12)),
+                      ),
+                  ]),
+                ),
+              ]),
+            ),
+          ),
           const SizedBox(height: 16),
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
             Expanded(
@@ -214,7 +302,8 @@ class _CheckoutPageState extends State<CheckoutPage> {
           const SizedBox(height: 20),
           AppCard(
             child: Column(children: <Widget>[
-              _row('Price per ticket', rupiah(e.priceIdr)),
+              if (widget.tier != null) _row('Category', widget.tier!.name),
+              _row('Price per ticket', rupiah(_basePrice)),
               if (_discountPercent > 0) _row('Discount', '-$_discountPercent%', valueColor: AppColors.butter),
               _row('Quantity', '× $_qty'),
               const Divider(height: 24),

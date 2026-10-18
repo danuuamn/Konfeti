@@ -1,5 +1,32 @@
 import '../core/config.dart';
 
+/// Kategori tiket dari backend (mis. CAT 1, CAT 2, Festival, VIP, Regular).
+class TicketTier {
+  const TicketTier({
+    required this.id,
+    required this.name,
+    required this.description,
+    required this.priceIdr,
+    required this.stock,
+  });
+
+  final int id;
+  final String name;
+  final String description;
+  final int priceIdr;
+  final int stock;
+
+  bool get soldOut => stock <= 0;
+
+  factory TicketTier.fromJson(Map<String, dynamic> j) => TicketTier(
+        id: (j['id'] as num).toInt(),
+        name: (j['name'] ?? '') as String,
+        description: (j['description'] ?? '') as String,
+        priceIdr: (j['price_idr'] as num).toInt(),
+        stock: (j['stock'] as num?)?.toInt() ?? 0,
+      );
+}
+
 class Event {
   Event({
     required this.id,
@@ -17,6 +44,7 @@ class Event {
     this.spotifyArtistId,
     this.imageUrl,
     this.lineup = const <String>[],
+    this.tiers = const <TicketTier>[],
   });
 
   final int id;
@@ -36,6 +64,9 @@ class Event {
 
   /// Semua artis yang tampil. Jika backend tidak mengirim lineup, berisi headliner saja.
   final List<String> lineup;
+
+  /// Kategori tiket event ini. Kosong = event lama tanpa kategori (pakai harga event).
+  final List<TicketTier> tiers;
 
   List<String> get artists => lineup.isEmpty ? <String>[artist] : lineup;
   bool get isMultiArtist => artists.length > 1;
@@ -68,6 +99,10 @@ class Event {
             .split(',')
             .map((e) => e.trim())
             .where((e) => e.isNotEmpty)
+            .toList(),
+        tiers: ((j['tiers'] as List?) ?? const <Object?>[])
+            .whereType<Map>()
+            .map((t) => TicketTier.fromJson(Map<String, dynamic>.from(t)))
             .toList(),
       );
 }
