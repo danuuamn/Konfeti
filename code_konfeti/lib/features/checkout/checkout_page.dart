@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -126,103 +128,134 @@ class _CheckoutPageState extends State<CheckoutPage> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final e = widget.event;
     final rate = _rates[_currency] ?? 1;
     final p = zoneParts(e.startUtc, 'Asia/Jakarta');
     return Scaffold(
       appBar: AppBar(title: const Text('Payment'), actions: const <Widget>[RotateButton()]),
-      body: ListView(padding: const EdgeInsets.all(16), children: <Widget>[
-        AppCard(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-            Text(e.title, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 2),
-            Text('${e.artistLabel} • ${e.venueName}', style: const TextStyle(color: AppColors.sky, fontSize: 13)),
-            const SizedBox(height: 8),
-            Row(children: <Widget>[
-              const Icon(Icons.event, size: 16, color: AppColors.sun),
-              const SizedBox(width: 6),
-              Text('${p.date} • ${p.time} ${p.abbr}', style: const TextStyle(fontSize: 13)),
+      body: AppBackground(
+        child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24), children: <Widget>[
+          GlassCard(
+            highlight: true,
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+              Text(e.title, style: AppText.display(size: 22, height: 1.15)),
+              const SizedBox(height: 4),
+              Text('${e.artistLabel} • ${e.venueName}', style: const TextStyle(color: AppColors.sky, fontSize: 13)),
+              const SizedBox(height: 10),
+              Row(children: <Widget>[
+                const Icon(Icons.event, size: 16, color: AppColors.sun),
+                const SizedBox(width: 6),
+                Text('${p.date} • ${p.time} ${p.abbr}', style: const TextStyle(fontSize: 13)),
+              ]),
             ]),
-          ]),
-        ),
-        const SizedBox(height: 12),
-        AppCard(
-          child: Row(children: <Widget>[
-            const Expanded(child: Text('Tickets', style: TextStyle(fontWeight: FontWeight.w600))),
-            IconButton.filledTonal(
-                onPressed: _qty > 1 ? () => setState(() => _qty--) : null, icon: const Icon(Icons.remove)),
-            Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text('$_qty', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700))),
-            IconButton.filledTonal(
-                onPressed: _qty < _maxQty ? () => setState(() => _qty++) : null, icon: const Icon(Icons.add)),
-          ]),
-        ),
-        const SizedBox(height: 16),
-        Row(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-          Expanded(
-            child: TextField(
-              controller: _promo,
-              textCapitalization: TextCapitalization.characters,
-              decoration: InputDecoration(
-                labelText: 'Promo code',
-                errorText: _promoError,
-                helperText: _appliedCode != null ? '$_appliedCode applied: $_discountPercent% off' : null,
+          ),
+          const SizedBox(height: 12),
+          AppCard(
+            child: Row(children: <Widget>[
+              const Expanded(child: Text('Tickets', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15))),
+              IconButton.filledTonal(
+                tooltip: 'Fewer tickets',
+                style: IconButton.styleFrom(
+                  backgroundColor: AppColors.glassHigh,
+                  foregroundColor: AppColors.sun,
+                  disabledBackgroundColor: AppColors.glass,
+                  disabledForegroundColor: AppColors.skyDim,
+                ),
+                onPressed: _qty > 1 ? () => setState(() => _qty--) : null,
+                icon: const Icon(Icons.remove),
+              ),
+              SizedBox(
+                width: 48,
+                child: Text('$_qty',
+                    textAlign: TextAlign.center, style: AppText.display(size: 26, weight: FontWeight.w700)),
+              ),
+              IconButton.filledTonal(
+                tooltip: 'More tickets',
+                style: IconButton.styleFrom(
+                  backgroundColor: AppColors.glassHigh,
+                  foregroundColor: AppColors.sun,
+                  disabledBackgroundColor: AppColors.glass,
+                  disabledForegroundColor: AppColors.skyDim,
+                ),
+                onPressed: _qty < _maxQty ? () => setState(() => _qty++) : null,
+                icon: const Icon(Icons.add),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 16),
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+            Expanded(
+              child: TextField(
+                controller: _promo,
+                textCapitalization: TextCapitalization.characters,
+                decoration: InputDecoration(
+                  labelText: 'Promo code',
+                  prefixIcon: const Icon(Icons.local_offer_outlined),
+                  errorText: _promoError,
+                  helperText: _appliedCode != null ? '$_appliedCode applied: $_discountPercent% off' : null,
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 8),
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: FilledButton(
-              onPressed: _applyPromo,
-              style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16)),
-              child: const Text('Apply'),
-            ),
-          ),
-        ]),
-        const SizedBox(height: 20),
-        Text('Show price in', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
-        const SizedBox(height: 8),
-        Wrap(spacing: 8, runSpacing: 8, children: <Widget>[
-          for (final code in _rates.keys)
-            CategoryPill(label: code, selected: _currency == code, onTap: () => setState(() => _currency = code)),
-        ]),
-        const SizedBox(height: 20),
-        AppCard(
-          child: Column(children: <Widget>[
-            _row('Price per ticket', rupiah(e.priceIdr)),
-            if (_discountPercent > 0) _row('Discount', '-$_discountPercent%', valueColor: AppColors.butter),
-            _row('Quantity', '× $_qty'),
-            const Divider(height: 24),
-            _row('Total (charged in IDR)', rupiah(_total), bold: true, big: true),
-            if (_currency != 'IDR') _row('≈ Total in $_currency', money(_total * rate, _currency), bold: true, valueColor: AppColors.sun),
-          ]),
-        ),
-        if (_currency != 'IDR')
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              'Converted amount is an estimate${_rateSource == 'fallback' ? ' (offline rates)' : ''}. '
-              'You will pay in IDR.',
-              style: const TextStyle(color: AppColors.sky, fontSize: 12),
-            ),
-          ),
-      ]),
-      bottomNavigationBar: Container(
-        decoration: const BoxDecoration(color: AppColors.bgAlt, border: Border(top: BorderSide(color: AppColors.skyFaint))),
-        child: SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-            child: SizedBox(
-              width: double.infinity,
+            const SizedBox(width: 8),
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
               child: FilledButton(
-                onPressed: _busy ? null : _pay,
-                child: _busy
-                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.ink))
-                    : Text('Pay ${rupiah(_total)}'),
+                onPressed: _applyPromo,
+                style: FilledButton.styleFrom(minimumSize: const Size(64, 48), padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14)),
+                child: const Text('Apply'),
+              ),
+            ),
+          ]),
+          const SectionHeader('Show price in', padding: EdgeInsets.fromLTRB(0, 24, 0, 10)),
+          Wrap(spacing: 8, runSpacing: 8, children: <Widget>[
+            for (final code in _rates.keys)
+              CategoryPill(label: code, selected: _currency == code, onTap: () => setState(() => _currency = code)),
+          ]),
+          const SizedBox(height: 20),
+          AppCard(
+            child: Column(children: <Widget>[
+              _row('Price per ticket', rupiah(e.priceIdr)),
+              if (_discountPercent > 0) _row('Discount', '-$_discountPercent%', valueColor: AppColors.butter),
+              _row('Quantity', '× $_qty'),
+              const Divider(height: 24),
+              _row('Total (charged in IDR)', rupiah(_total), bold: true, big: true),
+              if (_currency != 'IDR') _row('≈ Total in $_currency', money(_total * rate, _currency), bold: true, valueColor: AppColors.sun),
+            ]),
+          ),
+          if (_currency != 'IDR')
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'Converted amount is an estimate${_rateSource == 'fallback' ? ' (offline rates)' : ''}. '
+                'You will pay in IDR.',
+                style: const TextStyle(color: AppColors.sky, fontSize: 12),
+              ),
+            ),
+        ]),
+      ),
+      bottomNavigationBar: ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+          child: Container(
+            decoration: const BoxDecoration(
+              color: AppColors.glassHigh,
+              border: Border(top: BorderSide(color: AppColors.glassBorder)),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+                    onPressed: _busy ? null : _pay,
+                    child: _busy
+                        ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.ink))
+                        : Text('Pay ${rupiah(_total)}'),
+                  ),
+                ),
               ),
             ),
           ),

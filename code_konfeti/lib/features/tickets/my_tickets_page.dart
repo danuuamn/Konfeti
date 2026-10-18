@@ -127,47 +127,82 @@ class _MyTicketsPageState extends State<MyTicketsPage> with SingleTickerProvider
       appBar: AppBar(
         title: const Text('My Tickets'),
         actions: const <Widget>[RotateButton()],
-        bottom: TabBar(
-          controller: _tabs,
-          labelColor: AppColors.sun,
-          unselectedLabelColor: AppColors.sky,
-          indicatorColor: AppColors.sun,
-          dividerColor: AppColors.skyFaint,
-          tabs: <Widget>[
-            Tab(text: 'Pending${_pending.isEmpty ? '' : ' (${_pending.length})'}'),
-            const Tab(text: 'Active'),
-            const Tab(text: 'History'),
-          ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(64),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+            child: Container(
+              height: 48,
+              decoration: BoxDecoration(
+                color: AppColors.glass,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: AppColors.glassBorder),
+              ),
+              child: TabBar(
+                controller: _tabs,
+                dividerColor: Colors.transparent,
+                indicatorSize: TabBarIndicatorSize.tab,
+                indicatorPadding: const EdgeInsets.all(4),
+                indicator: BoxDecoration(color: AppColors.sun, borderRadius: BorderRadius.circular(999)),
+                labelColor: AppColors.ink,
+                unselectedLabelColor: AppColors.sky,
+                labelStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                splashBorderRadius: BorderRadius.circular(999),
+                overlayColor: WidgetStateProperty.all(Colors.transparent),
+                tabs: <Widget>[
+                  Tab(text: 'Pending${_pending.isEmpty ? '' : ' (${_pending.length})'}'),
+                  const Tab(text: 'Active'),
+                  const Tab(text: 'History'),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-              ? Center(
-                  child: Column(mainAxisSize: MainAxisSize.min, children: <Widget>[
-                    Padding(padding: const EdgeInsets.all(16), child: Text(_error!, textAlign: TextAlign.center)),
-                    FilledButton(onPressed: _load, child: const Text('Try again')),
+      body: AppBackground(
+        child: _loading
+            ? _skeletonList()
+            : _error != null
+                ? ErrorState(message: _error!, onRetry: _load)
+                : TabBarView(controller: _tabs, children: <Widget>[
+                    _list(_pending.map(_pendingCard).toList(), Icons.hourglass_empty, 'No pending payments',
+                        'Orders waiting for payment show up here.'),
+                    _list(_active.map(_activeCard).toList(), Icons.confirmation_number_outlined, 'No active tickets yet',
+                        'Buy one from Home!'),
+                    _list(_history.map(_historyCard).toList(), Icons.history, 'No past events', 'Past events will appear here.'),
                   ]),
-                )
-              : TabBarView(controller: _tabs, children: <Widget>[
-                  _list(_pending.map(_pendingCard).toList(), 'No pending payments.', Icons.hourglass_empty),
-                  _list(_active.map(_activeCard).toList(), 'No active tickets yet.\nBuy one from Home!', Icons.confirmation_number_outlined),
-                  _list(_history.map(_historyCard).toList(), 'Past events will appear here.', Icons.history),
-                ]),
+      ),
     );
   }
 
-  Widget _list(List<Widget> items, String empty, IconData icon) {
+  Widget _skeletonList() {
+    return ListView(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(16),
+      children: const <Widget>[
+        Padding(padding: EdgeInsets.only(bottom: 12), child: SkeletonBox(height: 104)),
+        Padding(padding: EdgeInsets.only(bottom: 12), child: SkeletonBox(height: 104)),
+        Padding(padding: EdgeInsets.only(bottom: 12), child: SkeletonBox(height: 104)),
+      ],
+    );
+  }
+
+  Widget _list(List<Widget> items, IconData icon, String title, String subtitle) {
     return RefreshIndicator(
+      color: AppColors.ink,
+      backgroundColor: AppColors.sun,
       onRefresh: _load,
       child: items.isEmpty
-          ? ListView(children: <Widget>[
-              const SizedBox(height: 120),
-              Icon(icon, size: 56, color: AppColors.skyDim),
-              const SizedBox(height: 12),
-              Center(child: Text(empty, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.sky))),
+          ? ListView(physics: const AlwaysScrollableScrollPhysics(), children: <Widget>[
+              const SizedBox(height: 72),
+              SizedBox(height: 320, child: EmptyState(icon: icon, title: title, subtitle: subtitle)),
             ])
-          : ListView(padding: const EdgeInsets.all(16), children: items),
+          : ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: EdgeInsets.fromLTRB(16, 8, 16, navBottomSpace(context)),
+              children: items,
+            ),
     );
   }
 
@@ -175,16 +210,17 @@ class _MyTicketsPageState extends State<MyTicketsPage> with SingleTickerProvider
     return AppCard(
       margin: const EdgeInsets.only(bottom: 12),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-        Row(children: <Widget>[
-          const Tag('AWAITING PAYMENT', icon: Icons.hourglass_top),
+        const Row(children: <Widget>[
+          Tag('AWAITING PAYMENT', icon: Icons.hourglass_top),
         ]),
-        const SizedBox(height: 8),
-        Text(o.title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-        Text('${o.artist} • ${o.venueName}', style: const TextStyle(color: AppColors.sky, fontSize: 13)),
-        const SizedBox(height: 6),
-        Text('${o.qty} ticket(s) • ${rupiah(o.grossAmount)}', style: const TextStyle(fontWeight: FontWeight.w600)),
-        Text('Order ${o.orderId}', style: const TextStyle(color: AppColors.sky, fontSize: 11)),
         const SizedBox(height: 10),
+        Text(o.title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 2),
+        Text('${o.artist} • ${o.venueName}', style: const TextStyle(color: AppColors.sky, fontSize: 13)),
+        const SizedBox(height: 8),
+        Text('${o.qty} ticket(s) • ${rupiah(o.grossAmount)}', style: const TextStyle(fontWeight: FontWeight.w700)),
+        Text('Order ${o.orderId}', style: const TextStyle(color: AppColors.skyDim, fontSize: 11)),
+        const SizedBox(height: 12),
         Align(
           alignment: Alignment.centerRight,
           child: FilledButton(onPressed: () => _payNow(o), child: Text(o.isDemo ? 'Pay (demo)' : 'Pay now')),
@@ -196,12 +232,17 @@ class _MyTicketsPageState extends State<MyTicketsPage> with SingleTickerProvider
   Widget _dateBlock(DateTime startUtc) {
     final p = zoneParts(startUtc, 'Asia/Jakarta');
     return Container(
-      width: 56,
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      decoration: BoxDecoration(color: AppColors.bg, borderRadius: BorderRadius.circular(12)),
+      width: 58,
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.bg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.glassBorder),
+      ),
       child: Column(mainAxisSize: MainAxisSize.min, children: <Widget>[
-        Text(p.month.toUpperCase(), style: const TextStyle(color: AppColors.sky, fontSize: 11, fontWeight: FontWeight.w600)),
-        Text(p.day, style: const TextStyle(color: AppColors.sun, fontSize: 22, fontWeight: FontWeight.w800, height: 1.1)),
+        Text(p.month.toUpperCase(),
+            style: const TextStyle(color: AppColors.sky, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
+        Text(p.day, style: AppText.display(size: 24, color: AppColors.sun, weight: FontWeight.w700, height: 1.1)),
       ]),
     );
   }
@@ -209,7 +250,7 @@ class _MyTicketsPageState extends State<MyTicketsPage> with SingleTickerProvider
   Widget _activeCard(TicketGroup t) {
     final p = zoneParts(t.startUtc, 'Asia/Jakarta');
     final untilStart = t.startUtc.difference(DateTime.now().toUtc());
-    final badge = t.isLive ? 'LIVE NOW' : (untilStart.isNegative ? '' : 'Starts in ${countdown(untilStart)}');
+    final badge = untilStart.isNegative ? '' : 'Starts in ${countdown(untilStart)}';
     return AppCard(
       margin: const EdgeInsets.only(bottom: 12),
       onTap: () => _openTicket(t),
@@ -221,15 +262,17 @@ class _MyTicketsPageState extends State<MyTicketsPage> with SingleTickerProvider
             Text(t.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
             const SizedBox(height: 2),
             Text('${t.venueName}\n${p.time} ${p.abbr}', style: const TextStyle(color: AppColors.sky, fontSize: 12)),
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             Tag('${t.count} ticket${t.count > 1 ? 's' : ''}', icon: Icons.confirmation_number_outlined),
           ]),
         ),
-        Column(mainAxisSize: MainAxisSize.min, children: <Widget>[
-          if (badge.isNotEmpty)
-            Text(badge,
-                style: TextStyle(
-                    color: t.isLive ? const Color(0xFFFF6B6B) : AppColors.butter, fontWeight: FontWeight.w700, fontSize: 11)),
+        const SizedBox(width: 8),
+        Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: <Widget>[
+          if (t.isLive)
+            const Tag('LIVE NOW', icon: Icons.circle, color: AppColors.danger)
+          else if (badge.isNotEmpty)
+            Text(badge, style: const TextStyle(color: AppColors.butter, fontWeight: FontWeight.w800, fontSize: 11)),
+          const SizedBox(height: 4),
           const Icon(Icons.chevron_right, color: AppColors.sky),
         ]),
       ]),
@@ -240,20 +283,24 @@ class _MyTicketsPageState extends State<MyTicketsPage> with SingleTickerProvider
     final p = zoneParts(t.startUtc, 'Asia/Jakarta');
     return AppCard(
       margin: const EdgeInsets.only(bottom: 12),
-      color: AppColors.bgAlt,
-      child: Row(children: <Widget>[
-        _dateBlock(t.startUtc),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-            Text(t.title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-            Text('${t.venueName}\n${p.date} • ${p.time} ${p.abbr}', style: const TextStyle(color: AppColors.sky, fontSize: 12)),
-            const SizedBox(height: 6),
-            Tag('${t.count} ticket${t.count > 1 ? 's' : ''}', outlined: true),
-          ]),
-        ),
-        const Icon(Icons.check_circle_outline, color: AppColors.skyDim),
-      ]),
+      color: const Color(0x660E2340),
+      child: Opacity(
+        opacity: 0.8,
+        child: Row(children: <Widget>[
+          _dateBlock(t.startUtc),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+              Text(t.title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+              const SizedBox(height: 2),
+              Text('${t.venueName}\n${p.date} • ${p.time} ${p.abbr}', style: const TextStyle(color: AppColors.sky, fontSize: 12)),
+              const SizedBox(height: 8),
+              Tag('${t.count} ticket${t.count > 1 ? 's' : ''}', outlined: true),
+            ]),
+          ),
+          const Icon(Icons.check_circle_outline, color: AppColors.skyDim),
+        ]),
+      ),
     );
   }
 }

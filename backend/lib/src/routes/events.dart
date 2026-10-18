@@ -1,6 +1,7 @@
 import '../db.dart';
 import '../env.dart';
 import '../web.dart';
+import 'spotify.dart' show fetchArtistImage;
 
 String _baseUrl(Ctx c) {
   final fixed = Env.get('PUBLIC_BASE_URL');
@@ -39,6 +40,42 @@ List<Map<String, Object?>> _enrich(Ctx c, AppDb db, List<Map<String, Object?>> e
   }).toList();
 }
 
+final Map<String, DateTime> _imageTried = <String, DateTime>{};
+
+/// Isi otomatis image_url yang masih kosong dengan foto artis dari Spotify (bila key Spotify ada).
+/// Hasilnya disimpan ke database, jadi Spotify hanya dipanggil sekali per artis.
+/// Mengembalikan true bila ada baris yang diubah.
+Future<bool> _fillMissingImages(AppDb db, List<Map<String, Object?>> events) async {
+  if (!Env.has('SPOTIFY_CLIENT_ID') || !Env.has('SPOTIFY_CLIENT_SECRET')) return false;
+  final now = DateTime.now();
+  final artists = <String>{};
+  for (final e in events) {
+    final img = e['image_url'];
+    final artist = e['artist'];
+    final missing = img == null || (img is String && img.isEmpty);
+    if (missing && artist is String && artist.isNotEmpty) {
+      final last = _imageTried[artist];
+      if (last == null || now.difference(last) > const Duration(minutes: 10)) artists.add(artist);
+    }
+  }
+  if (artists.isEmpty) return false;
+  for (final a in artists) {
+    _imageTried[a] = now; // jangan coba lagi terus-menerus bila gagal
+  }
+  var changed = false;
+  await Future.wait(artists.map((a) async {
+    final url = await fetchArtistImage(a).timeout(const Duration(seconds: 8), onTimeout: () => null);
+    if (url != null) {
+      db.run(
+        "UPDATE events SET image_url=? WHERE artist=? AND (image_url IS NULL OR image_url='')",
+        <Object?>[url, a],
+      );
+      changed = true;
+    }
+  }));
+  return changed;
+}
+
 void registerEvents(Router r, AppDb db) {
   // GET /api/events?q=&category=&sort=start|price_asc|price_desc
   r.get('/api/events', (c) async {
@@ -58,7 +95,9 @@ void registerEvents(Router r, AppDb db) {
       sql += ' AND category=?';
       params.add(category);
     }
-    await c.json(200, _enrich(c, db, db.all('$sql ORDER BY $order', params)));
+    var rows = db.all('$sql ORDER BY $order', params);
+    if (await _fillMissingImages(db, rows)) rows = db.all('$sql ORDER BY $order', params);
+    await c.json(200, _enrich(c, db, rows));
   });
 
   // harus didaftarkan sebelum '/api/events/:id'
@@ -68,7 +107,10 @@ void registerEvents(Router r, AppDb db) {
   });
 
   r.get('/api/events/:id', (c) async {
-    final e = db.one('SELECT * FROM events WHERE id=?', <Object?>[c.params['id']]);
+    var e = db.one('SELECT * FROM events WHERE id=?', <Object?>[c.params['id']]);
+    if (e != null && await _fillMissingImages(db, <Map<String, Object?>>[e])) {
+      e = db.one('SELECT * FROM events WHERE id=?', <Object?>[c.params['id']]);
+    }
     if (e == null) {
       await c.json(404, <String, Object?>{'message': 'Event not found'});
       return;

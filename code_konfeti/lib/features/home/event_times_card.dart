@@ -17,16 +17,16 @@ class EventTimesCard extends StatelessWidget {
         Row(children: <Widget>[
           const Icon(Icons.schedule, size: 20, color: AppColors.sun),
           const SizedBox(width: 8),
-          Text(title, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+          Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
         ]),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
         for (final z in eventZones)
           Builder(builder: (_) {
             final c = convertToZone(startUtc, z.tzName);
             return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 3),
+              padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(children: <Widget>[
-                SizedBox(width: 64, child: Text(z.label, style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.butter))),
+                SizedBox(width: 64, child: Text(z.label, style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.butter))),
                 Expanded(child: Text(c.text, style: const TextStyle(fontSize: 13))),
                 Text(c.abbr, style: const TextStyle(color: AppColors.sky, fontSize: 12)),
               ]),
