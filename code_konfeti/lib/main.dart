@@ -8,11 +8,20 @@ import 'core/navigation.dart';
 import 'core/session.dart';
 import 'features/auth/login_page.dart';
 import 'features/shell/main_shell.dart';
+import 'services/notification_service.dart';
 import 'services/sensor_service.dart';
 import 'services/time_zones.dart';
 
-// Accelerometer (darurat) hanya aktif saat login; gyroscope aktif di semua halaman sejak app dibuka.
-void _syncSensors() => SensorService.instance.setEmergencyEnabled(Session.instance.loggedIn);
+// Accelerometer (darurat) dan notifikasi hanya aktif saat login; gyroscope aktif di semua halaman sejak app dibuka.
+void _syncServices() {
+  final loggedIn = Session.instance.loggedIn;
+  SensorService.instance.setEmergencyEnabled(loggedIn);
+  if (loggedIn) {
+    NotificationService.instance.start(); // aman dipanggil berulang
+  } else {
+    NotificationService.instance.stop();
+  }
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,8 +35,8 @@ Future<void> main() async {
   await Favorites.load();
   await Session.instance.restore();
   SensorService.instance.startGyroscope();
-  Session.instance.addListener(_syncSensors);
-  _syncSensors();
+  Session.instance.addListener(_syncServices);
+  _syncServices();
   runApp(const KonfetiApp());
 }
 

@@ -49,6 +49,12 @@ class Session extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Perbarui data user di memori (mis. setelah ganti nama / foto profil) dan beri tahu listener.
+  void updateUser(Map<dynamic, dynamic> data) {
+    user = Map<String, dynamic>.from(data);
+    notifyListeners();
+  }
+
   Future<void> logout() async {
     token = null;
     user = null;
