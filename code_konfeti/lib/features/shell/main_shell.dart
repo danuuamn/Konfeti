@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../core/app_theme.dart';
-import '../../core/session.dart';
-import '../../core/widgets.dart';
+import '../chat/chat_page.dart';
+import '../fun/fun_page.dart';
 import '../home/home_page.dart';
+import '../profile/profile_page.dart';
 import '../tickets/my_tickets_page.dart';
 import 'floating_nav.dart';
 import 'shell_nav.dart';
@@ -32,9 +32,9 @@ class MainShell extends StatelessWidget {
             children: const <Widget>[
               HomePage(),
               MyTicketsPage(),
-              _Placeholder(title: 'AI Chatbot', icon: Icons.smart_toy_outlined),
-              _Placeholder(title: 'Entertainment', icon: Icons.sports_esports_outlined),
-              _ProfilePlaceholder(),
+              ChatPage(),
+              FunPage(),
+              ProfilePage(),
             ],
           ),
           bottomNavigationBar: FloatingNav(
@@ -44,70 +44,6 @@ class MainShell extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-/// Slot sementara untuk tab milik Danu. Ganti dengan halaman aslinya.
-class _Placeholder extends StatelessWidget {
-  const _Placeholder({required this.title, required this.icon});
-  final String title;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(title), actions: const <Widget>[RotateButton()]),
-      body: AppBackground(
-        child: Padding(
-          padding: EdgeInsets.only(bottom: navBottomSpace(context)),
-          child: EmptyState(icon: icon, title: '$title coming soon', subtitle: 'This feature is on its way.'),
-        ),
-      ),
-    );
-  }
-}
-
-class _ProfilePlaceholder extends StatelessWidget {
-  const _ProfilePlaceholder();
-
-  @override
-  Widget build(BuildContext context) {
-    final user = Session.instance.user;
-    final name = user?['name']?.toString() ?? '-';
-    final initial = name.trim().isNotEmpty && name != '-' ? name.trim()[0].toUpperCase() : '?';
-    return Scaffold(
-      appBar: AppBar(title: const Text('Profile'), actions: const <Widget>[RotateButton()]),
-      body: AppBackground(
-        child: Padding(
-          padding: EdgeInsets.only(bottom: navBottomSpace(context)),
-          child: Center(
-            child: Column(mainAxisSize: MainAxisSize.min, children: <Widget>[
-              Container(
-                width: 96,
-                height: 96,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: AppColors.glass,
-                  border: Border.all(color: AppColors.sun, width: 2),
-                ),
-                child: Text(initial, style: AppText.display(size: 40, color: AppColors.sun)),
-              ),
-              const SizedBox(height: 16),
-              Text(name, style: AppText.display(size: 26)),
-              const SizedBox(height: 4),
-              Text(user?['email']?.toString() ?? '', style: const TextStyle(color: AppColors.sky)),
-              const SizedBox(height: 24),
-              OutlinedButton.icon(
-                onPressed: () => Session.instance.logout(),
-                icon: const Icon(Icons.logout),
-                label: const Text('Logout'),
-              ),
-            ]),
-          ),
-        ),
-      ),
     );
   }
 }
