@@ -1,5 +1,5 @@
 name: konfeti_backend
-description: Konfeti concert ticketing REST API (Dart, SQLite, JWT, Midtrans sandbox, simple blockchain, Gemini proxy).
+description: Konfeti concert ticketing REST API (Dart, SQLite atau Supabase (Postgres), JWT, Midtrans sandbox, simple blockchain, Gemini proxy).
 version: 1.0.0
 publish_to: none
 
@@ -10,4 +10,5 @@ dependencies:
   bcrypt: ^1.2.0
   crypto: ^3.0.6
   http: ^1.2.2
+  postgres: ^3.4.0
   sqlite3: ^3.0.0
