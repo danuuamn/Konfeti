@@ -104,7 +104,7 @@ const List<List<Object?>> _promos = <List<Object?>>[
 
 Future<void> main(List<String> args) async {
   Env.load();
-  final db = AppDb.open();
+  final db = await AppDb.open();
 
   if (args.contains('--reset')) {
     // hapus data yang bergantung pada events (urutan penting karena foreign key)
@@ -117,13 +117,13 @@ Future<void> main(List<String> args) async {
       'ticket_tiers',
       'events',
     ]) {
-      db.run('DELETE FROM $t');
+      await db.run('DELETE FROM $t');
     }
     print('Events, orders, tickets, blocks, and notifications cleared (users are kept).');
   }
 
   for (final p in _promos) {
-    db.run('INSERT OR IGNORE INTO promos(code,description,discount_percent) VALUES(?,?,?)', p);
+    await db.run('INSERT INTO promos(code,description,discount_percent) VALUES(?,?,?) ON CONFLICT DO NOTHING', p);
   }
 
   List<List<Object?>> tiersFor(String artist, int price, int stock) {
@@ -134,10 +134,10 @@ Future<void> main(List<String> args) async {
     ];
   }
 
-  void insertTiers(int eventId, List<List<Object?>> tiers) {
+  Future<void> insertTiers(AppDb d, int eventId, List<List<Object?>> tiers) async {
     var order = 0;
     for (final t in tiers) {
-      db.run(
+      await d.run(
         'INSERT INTO ticket_tiers(event_id,name,description,price_idr,stock,sort_order) VALUES(?,?,?,?,?,?)',
         <Object?>[eventId, t[0], t[1], t[2], t[3], order++],
       );
@@ -147,40 +147,38 @@ Future<void> main(List<String> args) async {
   int minPrice(List<List<Object?>> tiers) => tiers.map((t) => t[2] as int).reduce((a, b) => a < b ? a : b);
   int sumStock(List<List<Object?>> tiers) => tiers.fold<int>(0, (a, t) => a + (t[3] as int));
 
-  final count = db.one('SELECT COUNT(*) AS n FROM events')!['n'] as int;
+  final count = (await db.one('SELECT COUNT(*) AS n FROM events'))!['n'] as int;
   if (count == 0) {
     final events = _events();
-    db.transaction<void>(() {
+    await db.transaction<void>((tx) async {
       for (final e in events) {
         final tiers = tiersFor(e[1] as String, e[9] as int, e[10] as int);
         final row = List<Object?>.from(e);
         row[9] = minPrice(tiers); // harga "mulai dari"
         row[10] = sumStock(tiers); // total stok semua kategori
-        final id = db
-            .run(
+        final id = await tx.insert(
               '''INSERT INTO events(title,artist,category,venue_name,latitude,longitude,is_outdoor,
                       start_time_utc,end_time_utc,price_idr,stock)
    VALUES(?,?,?,?,?,?,?,?,?,?,?)''',
               row,
-            )
-            .lastInsertId;
-        insertTiers(id, tiers);
+            );
+        await insertTiers(tx, id, tiers);
       }
     });
     print('Seeded ${events.length} events (with ticket categories) and ${_promos.length} promo codes.');
   } else {
     // Database lama: lengkapi kategori tiket untuk event yang belum punya.
     var filled = 0;
-    final rows = db.all('SELECT id, artist, price_idr, stock FROM events');
-    db.transaction<void>(() {
+    final rows = await db.all('SELECT id, artist, price_idr, stock FROM events');
+    await db.transaction<void>((tx) async {
       for (final ev in rows) {
-        final has = db.one('SELECT COUNT(*) AS n FROM ticket_tiers WHERE event_id=?', <Object?>[ev['id']])!['n'] as int;
+        final has = (await tx.one('SELECT COUNT(*) AS n FROM ticket_tiers WHERE event_id=?', <Object?>[ev['id']]))!['n'] as int;
         if (has > 0) continue;
         final tiers = tiersFor(ev['artist'] as String? ?? '', ev['price_idr'] as int, ev['stock'] as int);
-        insertTiers(ev['id'] as int, tiers);
-        final sold = db.one('SELECT COUNT(*) AS n FROM tickets WHERE event_id=?', <Object?>[ev['id']])!['n'] as int;
+        await insertTiers(tx, ev['id'] as int, tiers);
+        final sold = (await tx.one('SELECT COUNT(*) AS n FROM tickets WHERE event_id=?', <Object?>[ev['id']]))!['n'] as int;
         final left = sumStock(tiers) - sold;
-        db.run('UPDATE events SET price_idr=?, stock=? WHERE id=?', <Object?>[minPrice(tiers), left < 0 ? 0 : left, ev['id']]);
+        await tx.run('UPDATE events SET price_idr=?, stock=? WHERE id=?', <Object?>[minPrice(tiers), left < 0 ? 0 : left, ev['id']]);
         filled++;
       }
     });
@@ -190,7 +188,7 @@ Future<void> main(List<String> args) async {
 
   // Gambar artis: alamat manual dulu, kalau tidak ada diambil dari Spotify (butuh key di .env).
   final refresh = args.contains('--images') || args.contains('--reset');
-  final events = db.all('SELECT id, artist, image_url FROM events');
+  final events = await db.all('SELECT id, artist, image_url FROM events');
   final cache = <String, String?>{};
   var withImage = 0;
   for (final ev in events) {
@@ -206,7 +204,7 @@ Future<void> main(List<String> args) async {
     }
     final url = cache[artist];
     if (url != null) {
-      db.run('UPDATE events SET image_url=? WHERE id=?', <Object?>[url, ev['id']]);
+      await db.run('UPDATE events SET image_url=? WHERE id=?', <Object?>[url, ev['id']]);
       withImage++;
     }
   }

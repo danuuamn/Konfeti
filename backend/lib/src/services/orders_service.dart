@@ -16,36 +16,50 @@ import 'blockchain.dart';
 
 /// Ubah status order. Idempotent: order yang sudah "paid" tidak pernah diturunkan,
 /// dan tiket + block hanya dibuat satu kali saat transisi ke "paid".
-Map<String, Object?>? settleOrder(AppDb db, String orderId, String status) {
-  final tx = db.one('SELECT * FROM transactions WHERE order_id=?', <Object?>[orderId]);
+/// (UPDATE bersyarat di awal transaksi memastikan hanya satu proses yang "menang",
+/// walau webhook dan sinkronisasi berjalan bersamaan.)
+Future<Map<String, Object?>?> settleOrder(AppDb db, String orderId, String status) async {
+  final tx = await db.one('SELECT * FROM transactions WHERE order_id=?', <Object?>[orderId]);
   if (tx == null) return null;
   if (tx['status'] == status || tx['status'] == 'paid') return tx;
 
-  final ev = db.one('SELECT title FROM events WHERE id=?', <Object?>[tx['event_id']]);
+  final ev = await db.one('SELECT title FROM events WHERE id=?', <Object?>[tx['event_id']]);
   final String title = ev == null ? 'your event' : ev['title'] as String;
   final int qty = tx['qty'] as int;
   final int userId = tx['user_id'] as int;
   final Object? eventId = tx['event_id'];
 
-  db.transaction<void>(() {
+  await db.transaction<void>((t) async {
+    final changed = (await t.run(
+      "UPDATE transactions SET status=? WHERE order_id=? AND status <> ? AND status <> 'paid'",
+      <Object?>[status, orderId, status],
+    ))
+        .changes;
+    if (changed != 1) return; // sudah diproses proses lain
+
     if (status == 'paid') {
       for (var i = 0; i < qty; i++) {
         final code = 'TKT-${randomHex(6)}';
-        db.run(
+        await t.run(
           'INSERT INTO tickets(ticket_code,order_id,event_id,user_id) VALUES(?,?,?,?)',
           <Object?>[code, orderId, eventId, userId],
         );
-        addBlock(db, code, userId);
+        await addBlock(t, code, userId);
       }
-      db.run('UPDATE events SET stock = MAX(stock - ?, 0) WHERE id = ?', <Object?>[qty, eventId]);
+      await t.run(
+        'UPDATE events SET stock = CASE WHEN stock > ? THEN stock - ? ELSE 0 END WHERE id = ?',
+        <Object?>[qty, qty, eventId],
+      );
       if (tx['tier_id'] != null) {
-        db.run('UPDATE ticket_tiers SET stock = MAX(stock - ?, 0) WHERE id = ?', <Object?>[qty, tx['tier_id']]);
+        await t.run(
+          'UPDATE ticket_tiers SET stock = CASE WHEN stock > ? THEN stock - ? ELSE 0 END WHERE id = ?',
+          <Object?>[qty, qty, tx['tier_id']],
+        );
       }
     }
-    db.run('UPDATE transactions SET status=? WHERE order_id=?', <Object?>[status, orderId]);
     final m = _message(status, title, qty);
     if (m != null) {
-      db.run('INSERT INTO notifications(user_id,title,body) VALUES(?,?,?)', <Object?>[userId, m.$1, m.$2]);
+      await t.run('INSERT INTO notifications(user_id,title,body) VALUES(?,?,?)', <Object?>[userId, m.$1, m.$2]);
     }
   });
 

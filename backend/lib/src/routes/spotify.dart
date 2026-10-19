@@ -229,10 +229,8 @@ void registerSpotify(Router r, AppDb db) {
     if (n < 1) n = 1;
     if (n > 8) n = 8;
 
-    final names = db
-        .all("SELECT DISTINCT artist FROM events WHERE artist IS NOT NULL AND artist <> ''")
-        .map((row) => row['artist'] as String)
-        .toList();
+    final artistRows = await db.all("SELECT DISTINCT artist FROM events WHERE artist IS NOT NULL AND artist <> ''");
+    final names = artistRows.map((row) => row['artist'] as String).toList();
     if (names.length < 4) {
       await c.json(400, <String, Object?>{'message': 'Need at least 4 different artists in events'});
       return;

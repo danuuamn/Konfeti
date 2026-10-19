@@ -46,7 +46,7 @@ const _statusMap = <String, String>{
 /// webhook tidak sampai, mis. server hanya jalan di localhost).
 Future<void> syncPendingOrders(AppDb db, int userId) async {
   if (!_hasKey()) return;
-  final pending = db.all(
+  final pending = await db.all(
     "SELECT order_id FROM transactions WHERE user_id=? AND status='pending' AND snap_token IS NOT NULL "
     "ORDER BY created_at DESC LIMIT 10",
     <Object?>[userId],
@@ -63,7 +63,7 @@ Future<void> syncPendingOrders(AppDb db, int userId) async {
       final data = jsonDecode(utf8.decode(resp.bodyBytes));
       if (data is! Map) return;
       final st = _statusMap[(data['transaction_status'] ?? '').toString()];
-      if (st != null) settleOrder(db, id, st);
+      if (st != null) await settleOrder(db, id, st);
     } catch (_) {
       // abaikan: coba lagi pada permintaan berikutnya
     }
@@ -99,18 +99,22 @@ void registerOrders(Router r, AppDb db) {
   r.post('/api/orders', (c) async {
     final b = c.bodyMap;
     final qn = numOf(b['qty']);
-    final eventId = b['event_id'];
-    final Map<String, Object?>? ev = (eventId is num || eventId is String)
-        ? db.one('SELECT * FROM events WHERE id=?', <Object?>[eventId])
+    final eidNum = numOf(b['event_id']);
+    final Map<String, Object?>? ev = (eidNum != null && isWhole(eidNum))
+        ? await db.one('SELECT * FROM events WHERE id=?', <Object?>[eidNum.toInt()])
         : null;
     if (ev == null || qn == null || !isWhole(qn) || qn < 1 || qn > 5 || (ev['stock'] as int) < qn) {
       await c.json(400, <String, Object?>{'message': 'Invalid order or sold out'});
       return;
     }
+    if (ev['status'] != 'active') {
+      await c.json(400, <String, Object?>{'message': 'This event is not available for sale'});
+      return;
+    }
     final q = qn.toInt();
 
     // Kategori tiket (VIP, CAT 1, dst). Event tanpa kategori memakai harga event (perilaku lama).
-    final tiers = db.all('SELECT * FROM ticket_tiers WHERE event_id=? ORDER BY sort_order, id', <Object?>[ev['id']]);
+    final tiers = await db.all('SELECT * FROM ticket_tiers WHERE event_id=? ORDER BY sort_order, id', <Object?>[ev['id']]);
     Map<String, Object?>? tier;
     if (tiers.isNotEmpty) {
       final tid = numOf(b['tier_id']);
@@ -144,7 +148,7 @@ void registerOrders(Router r, AppDb db) {
     var discount = 0;
     if (truthy(b['promo_code'])) {
       final code = b['promo_code'].toString().trim().toUpperCase();
-      final p = db.one('SELECT * FROM promos WHERE code=? AND active=1', <Object?>[code]);
+      final p = await db.one('SELECT * FROM promos WHERE code=? AND active=1', <Object?>[code]);
       if (p == null) {
         await c.json(400, <String, Object?>{'message': 'Invalid promo code'});
         return;
@@ -185,12 +189,12 @@ void registerOrders(Router r, AppDb db) {
       }
     }
 
-    db.run(
+    await db.run(
       'INSERT INTO transactions(order_id,user_id,event_id,qty,gross_amount,snap_token,tier_id,tier_name) '
       'VALUES(?,?,?,?,?,?,?,?)',
       <Object?>[orderId, c.userId, ev['id'], q, gross, snapToken, tier?['id'], tierName],
     );
-    db.run('INSERT INTO notifications(user_id,title,body) VALUES(?,?,?)', <Object?>[
+    await db.run('INSERT INTO notifications(user_id,title,body) VALUES(?,?,?)', <Object?>[
       c.userId,
       'Waiting for payment',
       'Complete the payment of Rp ${formatThousands(gross)} for "$itemName".',
@@ -218,21 +222,21 @@ void registerOrders(Router r, AppDb db) {
       return;
     }
 
-    final tx = db.one('SELECT order_id FROM transactions WHERE order_id=?', <Object?>[orderId]);
+    final tx = await db.one('SELECT order_id FROM transactions WHERE order_id=?', <Object?>[orderId.toString()]);
     if (tx == null) {
       await c.empty(404);
       return;
     }
 
     final status = _statusMap[(b['transaction_status'] ?? '').toString()];
-    if (status != null) settleOrder(db, orderId.toString(), status);
+    if (status != null) await settleOrder(db, orderId.toString(), status);
     await c.empty(200);
   });
 
   // Daftar transaksi user
   r.get('/api/orders', (c) async {
     await syncPendingOrders(db, c.userId);
-    final rows = db.all(
+    final rows = await db.all(
       '''SELECT tr.*, e.title, e.artist, e.venue_name, e.start_time_utc
        FROM transactions tr JOIN events e ON e.id = tr.event_id
        WHERE tr.user_id = ? ORDER BY tr.created_at DESC, tr.order_id DESC''',
@@ -254,12 +258,12 @@ void registerOrders(Router r, AppDb db) {
   // Khusus demo: tandai order sebagai lunas tanpa Midtrans
   if (Env.devRoutes) {
     r.post('/api/orders/dev/simulate-paid/:orderId', (c) async {
-      final tx = db.one('SELECT * FROM transactions WHERE order_id=?', <Object?>[c.params['orderId']]);
+      final tx = await db.one('SELECT * FROM transactions WHERE order_id=?', <Object?>[c.params['orderId']]);
       if (tx == null || tx['user_id'] != c.userId) {
         await c.json(404, <String, Object?>{'message': 'Order not found'});
         return;
       }
-      final done = settleOrder(db, tx['order_id'] as String, 'paid');
+      final done = await settleOrder(db, tx['order_id'] as String, 'paid');
       await c.json(200, <String, Object?>{'order_id': tx['order_id'], 'status': done?['status']});
     }, auth: true);
   }

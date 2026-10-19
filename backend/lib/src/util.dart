@@ -61,3 +61,10 @@ String randomHex(int bytes) {
   }
   return b.toString().toUpperCase();
 }
+
+/// 'YYYY-MM-DD HH:MM:SS' (UTC): format kolom created_at di database (SQLite maupun Postgres).
+String sqlTs(DateTime d) {
+  final u = d.toUtc();
+  String p(int n, int w) => n.toString().padLeft(w, '0');
+  return '${p(u.year, 4)}-${p(u.month, 2)}-${p(u.day, 2)} ${p(u.hour, 2)}:${p(u.minute, 2)}:${p(u.second, 2)}';
+}

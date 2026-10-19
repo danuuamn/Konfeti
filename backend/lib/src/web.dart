@@ -70,6 +70,7 @@ class Router {
   void get(String path, Handler h, {bool auth = false}) => _add('GET', path, h, auth);
   void post(String path, Handler h, {bool auth = false}) => _add('POST', path, h, auth);
   void put(String path, Handler h, {bool auth = false}) => _add('PUT', path, h, auth);
+  void delete(String path, Handler h, {bool auth = false}) => _add('DELETE', path, h, auth);
 
   void _add(String method, String path, Handler h, bool auth) {
     routes.add(Route(method, _split(path), h, auth));

@@ -73,7 +73,7 @@ void registerChat(Router r, AppDb db) {
     }
 
     // Beri konteks data event dari database agar jawaban relevan
-    final events = db.all(
+    final events = await db.all(
       'SELECT title, artist, category, venue_name, start_time_utc, price_idr, stock FROM events',
     );
     final instruction = 'You are a helpful assistant for a concert ticketing app called Konfeti. '

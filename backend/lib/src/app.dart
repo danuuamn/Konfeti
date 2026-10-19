@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'db.dart';
 import 'env.dart';
+import 'routes/admin.dart';
 import 'routes/auth.dart';
 import 'routes/chat.dart';
 import 'routes/emergency.dart';
@@ -27,7 +28,7 @@ Future<void> runServer() async {
   await Directory('${Directory.current.path}${Platform.pathSeparator}uploads${Platform.pathSeparator}avatars')
       .create(recursive: true);
 
-  final db = AppDb.open();
+  final db = await AppDb.open();
   final router = Router();
 
   router.get('/api/health', (c) async {
@@ -44,6 +45,7 @@ Future<void> runServer() async {
   });
 
   registerAuth(router, db);
+  registerAdmin(router, db);
   registerEvents(router, db);
   registerOrders(router, db);
   registerTickets(router, db);

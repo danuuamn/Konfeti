@@ -3,12 +3,12 @@ import '../web.dart';
 
 void registerPromos(Router r, AppDb db) {
   r.get('/api/promos', (c) async {
-    await c.json(200, db.all('SELECT code, description, discount_percent FROM promos WHERE active=1'));
+    await c.json(200, await db.all('SELECT code, description, discount_percent FROM promos WHERE active=1'));
   });
 
   r.get('/api/promos/validate', (c) async {
     final code = (c.query['code'] ?? '').trim().toUpperCase();
-    final p = db.one(
+    final p = await db.one(
       'SELECT code, description, discount_percent FROM promos WHERE code=? AND active=1',
       <Object?>[code],
     );

@@ -14,8 +14,8 @@ String _baseUrl(Ctx c) {
 
 /// Tambahkan daftar kategori tiket (`tiers`) ke tiap event, dan ubah image_url
 /// relatif (mis. /uploads/artists/x.jpg) menjadi alamat penuh.
-List<Map<String, Object?>> _enrich(Ctx c, AppDb db, List<Map<String, Object?>> events) {
-  final tiers = db.all(
+Future<List<Map<String, Object?>>> _enrich(Ctx c, AppDb db, List<Map<String, Object?>> events) async {
+  final tiers = await db.all(
     'SELECT id, event_id, name, description, price_idr, stock FROM ticket_tiers ORDER BY sort_order, id',
   );
   final byEvent = <Object?, List<Map<String, Object?>>>{};
@@ -66,7 +66,7 @@ Future<bool> _fillMissingImages(AppDb db, List<Map<String, Object?>> events) asy
   await Future.wait(artists.map((a) async {
     final url = await fetchArtistImage(a).timeout(const Duration(seconds: 8), onTimeout: () => null);
     if (url != null) {
-      db.run(
+      await db.run(
         "UPDATE events SET image_url=? WHERE artist=? AND (image_url IS NULL OR image_url='')",
         <Object?>[url, a],
       );
@@ -89,32 +89,35 @@ void registerEvents(Router r, AppDb db) {
     };
     final order = orderMap[sort] ?? orderMap['start']!; // whitelist -> aman dari SQL injection
 
-    var sql = 'SELECT * FROM events WHERE (title LIKE ? OR artist LIKE ?)';
+    var sql = "SELECT * FROM events WHERE status='active' AND (title LIKE ? OR artist LIKE ?)";
     final params = <Object?>['%$q%', '%$q%'];
     if (category != null && category.isNotEmpty) {
       sql += ' AND category=?';
       params.add(category);
     }
-    var rows = db.all('$sql ORDER BY $order', params);
-    if (await _fillMissingImages(db, rows)) rows = db.all('$sql ORDER BY $order', params);
-    await c.json(200, _enrich(c, db, rows));
+    var rows = await db.all('$sql ORDER BY $order', params);
+    if (await _fillMissingImages(db, rows)) rows = await db.all('$sql ORDER BY $order', params);
+    await c.json(200, await _enrich(c, db, rows));
   });
 
   // harus didaftarkan sebelum '/api/events/:id'
   r.get('/api/events/categories', (c) async {
-    final rows = db.all('SELECT DISTINCT category FROM events ORDER BY category');
+    final rows = await db.all("SELECT DISTINCT category FROM events WHERE status='active' ORDER BY category");
     await c.json(200, rows.map((row) => row['category']).toList());
   });
 
   r.get('/api/events/:id', (c) async {
-    var e = db.one('SELECT * FROM events WHERE id=?', <Object?>[c.params['id']]);
+    final id = int.tryParse(c.params['id'] ?? '');
+    var e = id == null
+        ? null
+        : await db.one("SELECT * FROM events WHERE id=? AND status != 'draft'", <Object?>[id]);
     if (e != null && await _fillMissingImages(db, <Map<String, Object?>>[e])) {
-      e = db.one('SELECT * FROM events WHERE id=?', <Object?>[c.params['id']]);
+      e = await db.one('SELECT * FROM events WHERE id=?', <Object?>[id]);
     }
     if (e == null) {
       await c.json(404, <String, Object?>{'message': 'Event not found'});
       return;
     }
-    await c.json(200, _enrich(c, db, <Map<String, Object?>>[e]).first);
+    await c.json(200, (await _enrich(c, db, <Map<String, Object?>>[e])).first);
   });
 }

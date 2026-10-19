@@ -16,17 +16,17 @@ void registerFeedback(Router r, AppDb db) {
       await c.json(400, <String, Object?>{'message': 'Message must be 3-1000 characters'});
       return;
     }
-    final info = db.run(
+    final newId = await db.insert(
       'INSERT INTO course_feedback(user_id,rating,message) VALUES(?,?,?)',
       <Object?>[c.userId, rating.toInt(), message.trim()],
     );
-    await c.json(201, db.one('SELECT * FROM course_feedback WHERE id=?', <Object?>[info.lastInsertId]));
+    await c.json(201, await db.one('SELECT * FROM course_feedback WHERE id=?', <Object?>[newId]));
   }, auth: true);
 
   r.get('/api/feedback', (c) async {
     await c.json(
       200,
-      db.all('SELECT * FROM course_feedback WHERE user_id=? ORDER BY id DESC LIMIT 50', <Object?>[c.userId]),
+      await db.all('SELECT * FROM course_feedback WHERE user_id=? ORDER BY id DESC LIMIT 50', <Object?>[c.userId]),
     );
   }, auth: true);
 }

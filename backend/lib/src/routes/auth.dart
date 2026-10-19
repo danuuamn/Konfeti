@@ -17,6 +17,7 @@ Map<String, Object?> _publicUser(Map<String, Object?> u) => <String, Object?>{
       'name': u['name'],
       'email': u['email'],
       'avatar_url': u['avatar_url'],
+      'role': u['role'],
     };
 
 /// Hash bcrypt di isolate terpisah supaya server tidak terhenti selama ~0,3 detik.
@@ -39,8 +40,8 @@ Future<bool> _checkPassword(String password, String hash) {
   });
 }
 
-Map<String, Object?>? _userById(AppDb db, int id) =>
-    db.one('SELECT id,name,email,avatar_url FROM users WHERE id=?', <Object?>[id]);
+Future<Map<String, Object?>?> _userById(AppDb db, int id) =>
+    db.one('SELECT id,name,email,avatar_url,role FROM users WHERE id=?', <Object?>[id]);
 
 /// Membersihkan base64 agar mirip perilaku Buffer.from(..., 'base64') di Node (longgar).
 List<int>? _decodeBase64(String input) {
@@ -69,24 +70,24 @@ void registerAuth(Router r, AppDb db) {
       return;
     }
     final emailStr = email as String;
-    if (db.one('SELECT 1 AS x FROM users WHERE email=?', <Object?>[emailStr]) != null) {
+    if (await db.one('SELECT 1 AS x FROM users WHERE email=?', <Object?>[emailStr]) != null) {
       await c.json(409, <String, Object?>{'message': 'Email already registered'});
       return;
     }
     final hash = await _hashPassword(password);
-    final info = db.run(
+    final newId = await db.insert(
       'INSERT INTO users(name,email,password_hash) VALUES(?,?,?)',
       <Object?>[name.trim(), emailStr, hash],
     );
-    final id = info.lastInsertId;
-    db.run('INSERT INTO notifications(user_id,title,body) VALUES(?,?,?)', <Object?>[
+    final id = newId;
+    await db.run('INSERT INTO notifications(user_id,title,body) VALUES(?,?,?)', <Object?>[
       id,
       'Welcome to Konfeti!',
       'Use promo code KONFETI10 to get 10% off your first ticket.',
     ]);
     await c.json(201, <String, Object?>{
       'token': signJwt(id, Env.get('JWT_SECRET')),
-      'user': <String, Object?>{'id': id, 'name': name.trim(), 'email': emailStr, 'avatar_url': null},
+      'user': <String, Object?>{'id': id, 'name': name.trim(), 'email': emailStr, 'avatar_url': null, 'role': 'user'},
     });
   });
 
@@ -94,7 +95,7 @@ void registerAuth(Router r, AppDb db) {
     final b = c.bodyMap;
     final email = (b['email'] ?? '').toString();
     final password = (b['password'] ?? '').toString();
-    final u = db.one('SELECT * FROM users WHERE email=?', <Object?>[email]);
+    final u = await db.one('SELECT * FROM users WHERE email=?', <Object?>[email]);
     if (u == null || !await _checkPassword(password, u['password_hash'] as String)) {
       await c.json(401, <String, Object?>{'message': 'Invalid email or password'});
       return;
@@ -106,7 +107,7 @@ void registerAuth(Router r, AppDb db) {
   });
 
   r.get('/api/auth/me', (c) async {
-    final u = _userById(db, c.userId);
+    final u = await _userById(db, c.userId);
     if (u == null) {
       await c.json(404, <String, Object?>{'message': 'User not found'});
       return;
@@ -121,8 +122,8 @@ void registerAuth(Router r, AppDb db) {
       await c.json(400, <String, Object?>{'message': 'Name must be 2-60 characters'});
       return;
     }
-    db.run('UPDATE users SET name=? WHERE id=?', <Object?>[name.trim(), c.userId]);
-    await c.json(200, _userById(db, c.userId));
+    await db.run('UPDATE users SET name=? WHERE id=?', <Object?>[name.trim(), c.userId]);
+    await c.json(200, await _userById(db, c.userId));
   }, auth: true);
 
   // Upload foto profil (base64 JPEG/PNG, maks ~3 MB)
@@ -147,7 +148,7 @@ void registerAuth(Router r, AppDb db) {
     await dir.create(recursive: true);
     final file = 'user-${c.userId}-${DateTime.now().millisecondsSinceEpoch}.${isPng ? 'png' : 'jpg'}';
     await File('${dir.path}${Platform.pathSeparator}$file').writeAsBytes(buf);
-    db.run('UPDATE users SET avatar_url=? WHERE id=?', <Object?>['/uploads/avatars/$file', c.userId]);
-    await c.json(200, _userById(db, c.userId));
+    await db.run('UPDATE users SET avatar_url=? WHERE id=?', <Object?>['/uploads/avatars/$file', c.userId]);
+    await c.json(200, await _userById(db, c.userId));
   }, auth: true);
 }

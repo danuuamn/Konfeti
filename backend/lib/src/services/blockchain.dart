@@ -9,14 +9,19 @@ String _sha(String s) => sha256.convert(utf8.encode(s)).toString();
 
 String _calc(int idx, String ts, String code, int uid, String prev) => _sha('$idx|$ts|$code|$uid|$prev');
 
-/// Menambah satu block (tiket baru) ke rantai.
-void addBlock(AppDb db, String ticketCode, int userId) {
-  final last = db.one('SELECT * FROM blocks ORDER BY idx DESC LIMIT 1');
+/// Menambah satu block (tiket baru) ke rantai. Harus dipanggil di dalam transaksi.
+Future<void> addBlock(AppDb db, String ticketCode, int userId) async {
+  // Postgres: kunci tabel supaya dua pembayaran bersamaan tidak membuat nomor block yang sama.
+  if (db.kind == 'postgres') await db.run('LOCK TABLE blocks IN EXCLUSIVE MODE');
+  final last = await db.one('SELECT * FROM blocks ORDER BY idx DESC LIMIT 1');
   final int idx = last == null ? 0 : (last['idx'] as int) + 1;
   final String prev = last == null ? '0' * 64 : last['hash'] as String;
   final ts = isoMs(DateTime.now());
   final hash = _calc(idx, ts, ticketCode, userId, prev);
-  db.run('INSERT INTO blocks VALUES(?,?,?,?,?,?)', <Object?>[idx, ts, ticketCode, userId, prev, hash]);
+  await db.run(
+    'INSERT INTO blocks(idx,timestamp,ticket_code,user_id,prev_hash,hash) VALUES(?,?,?,?,?,?)',
+    <Object?>[idx, ts, ticketCode, userId, prev, hash],
+  );
 }
 
 class ChainResult {
@@ -27,8 +32,8 @@ class ChainResult {
 }
 
 /// Memeriksa seluruh rantai: hash tiap block dan sambungan prev_hash.
-ChainResult verifyChain(AppDb db) {
-  final blocks = db.all('SELECT * FROM blocks ORDER BY idx');
+Future<ChainResult> verifyChain(AppDb db) async {
+  final blocks = await db.all('SELECT * FROM blocks ORDER BY idx');
   for (var i = 0; i < blocks.length; i++) {
     final b = blocks[i];
     final expected = _calc(
