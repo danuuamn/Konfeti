@@ -23,6 +23,9 @@ class SensorService {
   /// Kecepatan putar (rad/s) pada sumbu Z yang dianggap "twist". Turunkan jika kurang peka.
   static const double twistThreshold = 3.0;
 
+  /// false = memutar HP cepat tidak lagi mengganti orientasi layar (dimatikan sementara oleh game Tilt Catch).
+  bool twistEnabled = true;
+
   ShakeDetector? _shake;
   StreamSubscription<GyroscopeEvent>? _gyro;
   bool _landscape = false;
@@ -34,7 +37,7 @@ class SensorService {
     if (_gyro != null) return;
     _gyro = gyroscopeEventStream().listen((e) {
       final now = DateTime.now();
-      if (e.z.abs() > twistThreshold && now.difference(_lastFlip) > const Duration(milliseconds: 1200)) {
+      if (twistEnabled && e.z.abs() > twistThreshold && now.difference(_lastFlip) > const Duration(milliseconds: 1200)) {
         _lastFlip = now;
         HapticFeedback.selectionClick();
         toggleOrientation();

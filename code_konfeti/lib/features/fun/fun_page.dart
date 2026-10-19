@@ -10,6 +10,7 @@ import '../shell/shell_nav.dart';
 import '../tickets/artist_section.dart';
 import 'memory_game_page.dart';
 import 'quiz_game_page.dart';
+import 'tilt_game_page.dart';
 
 /// Tab Entertainment: mini games, trailer / video live, dan profil artis dari Spotify.
 class FunPage extends StatefulWidget {
@@ -30,6 +31,7 @@ class _FunPageState extends State<FunPage> {
   String? _selectedArtist;
   int? _quizBest;
   int? _memoryBest;
+  int? _tiltBest;
 
   @override
   void initState() {
@@ -59,10 +61,12 @@ class _FunPageState extends State<FunPage> {
       final uid = currentUserId();
       final quiz = await LocalDb.instance.getInt(uid, QuizGamePage.bestKey);
       final memory = await LocalDb.instance.getInt(uid, MemoryGamePage.bestKey);
+      final tilt = await LocalDb.instance.getInt(uid, TiltGamePage.bestKey);
       if (mounted) {
         setState(() {
           _quizBest = quiz;
           _memoryBest = memory;
+          _tiltBest = tilt;
         });
       }
     } catch (_) {/* skor tidak tampil, game tetap jalan */}
@@ -137,6 +141,13 @@ class _FunPageState extends State<FunPage> {
           subtitle: 'Match all the pairs in as few moves as you can.',
           best: _memoryBest == null ? 'No score yet' : 'Best: $_memoryBest moves',
           onPlay: () => _play(const MemoryGamePage()),
+        ),
+        _gameCard(
+          icon: Icons.screen_rotation_alt_rounded,
+          title: 'Tilt Catch',
+          subtitle: 'Tilt your phone like a steering wheel to catch the confetti. Uses the gyroscope.',
+          best: _tiltBest == null ? 'No score yet' : 'Best: $_tiltBest pts',
+          onPlay: () => _play(const TiltGamePage()),
         ),
         const SectionHeader('Trailers & Live Videos', padding: EdgeInsets.fromLTRB(0, 18, 0, 10)),
         if (_loading)
