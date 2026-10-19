@@ -15,7 +15,7 @@ class AppConfig {
   static const Duration earlyAccess = Duration(hours: 2);
 
   /// Tidak ada aktivitas selama ini -> otomatis logout.
-  static const Duration sessionTimeout = Duration(minutes: 10);
+  static const Duration sessionTimeout = Duration(minutes: 4);
 
   /// Peringatan "Are you still there?" muncul sekian lama sebelum logout.
   static const Duration sessionWarning = Duration(seconds: 30);

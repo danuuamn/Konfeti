@@ -147,42 +147,13 @@ class KonfetiLogo extends StatelessWidget {
   }
 }
 
-/// Latar layar: navy dengan tiga pendar warna palet (biru dan sedikit kuning) agar kaca punya sesuatu
-/// untuk dibiaskan. Hanya memakai primary dan sun yang sudah ada.
+/// Latar layar: satu warna solid (AppColors.bg lewat scaffoldBackgroundColor), tanpa gradient/pendar.
 class AppBackground extends StatelessWidget {
   const AppBackground({super.key, required this.child});
   final Widget child;
 
   @override
-  Widget build(BuildContext context) {
-    return Stack(fit: StackFit.expand, children: <Widget>[
-      const Positioned(top: -150, left: -130, child: _Glow(size: 440, color: AppColors.primary, alpha: 140)),
-      const Positioned(top: 320, right: -170, child: _Glow(size: 400, color: AppColors.primary, alpha: 80)),
-      const Positioned(bottom: -140, left: -70, child: _Glow(size: 340, color: AppColors.sun, alpha: 26)),
-      child,
-    ]);
-  }
-}
-
-class _Glow extends StatelessWidget {
-  const _Glow({required this.size, required this.color, required this.alpha});
-  final double size;
-  final Color color;
-  final int alpha;
-
-  @override
-  Widget build(BuildContext context) {
-    return IgnorePointer(
-      child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: RadialGradient(colors: <Color>[color.withAlpha(alpha), color.withAlpha(0)]),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => SizedBox.expand(child: child);
 }
 
 /// Placeholder berkedip saat loading (pengganti spinner layar penuh).
