@@ -79,6 +79,10 @@ class SqliteDb extends AppDb {
 
     addColumn('transactions', 'tier_id', 'INTEGER');
     addColumn('transactions', 'tier_name', 'TEXT');
+    addColumn('transactions', 'holder_name', 'TEXT');
+    addColumn('transactions', 'holder_nik', 'TEXT');
+    addColumn('transactions', 'holder_age', 'INTEGER');
+    addColumn('transactions', 'holder_gender', 'TEXT');
     addColumn('users', 'role', "TEXT NOT NULL DEFAULT 'user'");
     addColumn('events', 'status', "TEXT NOT NULL DEFAULT 'active'");
     addColumn('tickets', 'used_at', 'TEXT');
@@ -169,6 +173,15 @@ class PgDb extends AppDb {
     final db = PgDb._(pool, pool);
     for (final statement in pgSchemaStatements) {
       await db._session.execute(statement);
+    }
+    // Migrasi untuk tabel lama di Supabase (CREATE TABLE IF NOT EXISTS tidak menambah kolom)
+    for (final col in const <String>[
+      'holder_name TEXT',
+      'holder_nik TEXT',
+      'holder_age INTEGER',
+      'holder_gender TEXT',
+    ]) {
+      await db._session.execute('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS $col');
     }
     return db;
   }

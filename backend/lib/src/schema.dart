@@ -39,6 +39,10 @@ CREATE TABLE IF NOT EXISTS transactions (
   snap_token TEXT,
   tier_id INTEGER,
   tier_name TEXT,
+  holder_name TEXT,
+  holder_nik TEXT,
+  holder_age INTEGER,
+  holder_gender TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 )''',
   '''
@@ -158,6 +162,10 @@ CREATE TABLE IF NOT EXISTS transactions (
   snap_token TEXT,
   tier_id BIGINT,
   tier_name TEXT,
+  holder_name TEXT,
+  holder_nik TEXT,
+  holder_age INTEGER,
+  holder_gender TEXT,
   created_at TEXT DEFAULT to_char(timezone('utc', now()), 'YYYY-MM-DD HH24:MI:SS')
 )''',
   '''

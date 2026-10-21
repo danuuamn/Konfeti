@@ -452,6 +452,7 @@ void registerAdmin(Router r, AppDb db) {
     final total = (await db.one('SELECT COUNT(*) AS n $from $where', params))!['n'];
     final items = await db.all(
       '''SELECT tr.order_id, tr.status, tr.qty, tr.gross_amount, tr.tier_name, tr.created_at,
+                tr.holder_name, tr.holder_nik, tr.holder_age, tr.holder_gender,
                 u.name AS user_name, u.email AS user_email, e.title AS event_title
          $from $where ORDER BY tr.created_at DESC, tr.order_id DESC LIMIT ? OFFSET ?''',
       <Object?>[...params, _limit(c), _offset(c)],

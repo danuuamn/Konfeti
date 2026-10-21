@@ -113,6 +113,30 @@ void registerOrders(Router r, AppDb db) {
     }
     final q = qn.toInt();
 
+    // Data pemegang tiket (dikirim app di objek "buyer")
+    final buyerRaw = b['buyer'];
+    final buyer = buyerRaw is Map ? buyerRaw : const <String, Object?>{};
+    final holderName = (buyer['name'] ?? '').toString().trim();
+    final holderNik = (buyer['nik'] ?? '').toString().trim();
+    final ageNum = numOf(buyer['age']);
+    final holderGender = (buyer['gender'] ?? '').toString().trim().toLowerCase();
+    if (holderName.length < 3 || holderName.length > 100) {
+      await c.json(400, <String, Object?>{'message': 'Name must be 3-100 characters'});
+      return;
+    }
+    if (!RegExp(r'^\d{16}$').hasMatch(holderNik)) {
+      await c.json(400, <String, Object?>{'message': 'NIK must be exactly 16 digits'});
+      return;
+    }
+    if (ageNum == null || !isWhole(ageNum) || ageNum < 5 || ageNum > 100) {
+      await c.json(400, <String, Object?>{'message': 'Age must be a whole number between 5 and 100'});
+      return;
+    }
+    if (holderGender != 'male' && holderGender != 'female') {
+      await c.json(400, <String, Object?>{'message': 'Gender must be male or female'});
+      return;
+    }
+
     // Kategori tiket (VIP, CAT 1, dst). Event tanpa kategori memakai harga event (perilaku lama).
     final tiers = await db.all('SELECT * FROM ticket_tiers WHERE event_id=? ORDER BY sort_order, id', <Object?>[ev['id']]);
     Map<String, Object?>? tier;
@@ -190,9 +214,13 @@ void registerOrders(Router r, AppDb db) {
     }
 
     await db.run(
-      'INSERT INTO transactions(order_id,user_id,event_id,qty,gross_amount,snap_token,tier_id,tier_name) '
-      'VALUES(?,?,?,?,?,?,?,?)',
-      <Object?>[orderId, c.userId, ev['id'], q, gross, snapToken, tier?['id'], tierName],
+      'INSERT INTO transactions(order_id,user_id,event_id,qty,gross_amount,snap_token,tier_id,tier_name,'
+      'holder_name,holder_nik,holder_age,holder_gender) '
+      'VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
+      <Object?>[
+        orderId, c.userId, ev['id'], q, gross, snapToken, tier?['id'], tierName,
+        holderName, holderNik, ageNum.toInt(), holderGender,
+      ],
     );
     await db.run('INSERT INTO notifications(user_id,title,body) VALUES(?,?,?)', <Object?>[
       c.userId,
