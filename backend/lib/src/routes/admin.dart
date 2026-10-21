@@ -2,6 +2,7 @@ import '../db.dart';
 import '../services/blockchain.dart';
 import '../util.dart';
 import '../web.dart';
+import 'spotify.dart' show fetchArtistImage;
 
 /// Semua route di sini hanya untuk akun dengan role 'admin'. Peran dicek di SERVER pada setiap request
 /// (dibaca dari database, bukan dari token), jadi user biasa tidak bisa menembusnya.
@@ -177,6 +178,7 @@ Future<Map<String, Object?>> _inspectTicket(AppDb db, String code, {int? eventId
     '''SELECT t.ticket_code, t.event_id, t.used_at, t.checked_in_by,
               e.title AS event_title, e.start_time_utc, e.status AS event_status,
               u.name AS owner_name, u.email AS owner_email, tr.tier_name,
+              tr.holder_name, tr.holder_nik, tr.holder_age, tr.holder_gender,
               cb.name AS checked_in_by_name
        FROM tickets t
        JOIN events e ON e.id = t.event_id
@@ -267,6 +269,8 @@ void registerAdmin(Router r, AppDb db) {
            GROUP BY substr(created_at,1,10) ORDER BY day''',
         <Object?>[since],
       ),
+      'open_alerts': (await db.one('SELECT COUNT(*) AS n FROM emergency_alerts WHERE responded_at IS NULL'))!['n'],
+      'pending_orders': (await db.one("SELECT COUNT(*) AS n FROM transactions WHERE status='pending'"))!['n'],
       'low_stock': await db.all(
         "SELECT id, title, stock FROM events WHERE status='active' AND stock <= 20 AND end_time_utc > ? ORDER BY stock, id",
         <Object?>[nowIso],
@@ -579,6 +583,17 @@ void registerAdmin(Router r, AppDb db) {
     });
   });
 
+  // Foto artis dari Spotify untuk mengisi "URL gambar" di form event
+  get('/api/admin/spotify/artist-image', (c) async {
+    final name = (c.query['name'] ?? '').trim();
+    if (name.isEmpty) return bad(c, 'Artist name is required');
+    final url = await fetchArtistImage(name);
+    if (url == null) {
+      return bad(c, 'Image not found. Check the artist name and SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET in backend/.env.', 404);
+    }
+    await c.json(200, <String, Object?>{'image': url});
+  });
+
   // ---------------- Notifikasi broadcast ----------------
   post('/api/admin/broadcast', (c) async {
     final b = c.bodyMap;
@@ -600,14 +615,40 @@ void registerAdmin(Router r, AppDb db) {
       200,
       await db.all(
         '''SELECT a.id, a.ticket_code, a.latitude, a.longitude, a.created_at,
+                  a.responded_at, ru.name AS responded_by_name,
                   u.name AS user_name, u.email AS user_email, e.title AS event_title
            FROM emergency_alerts a
            JOIN users u ON u.id = a.user_id
+           LEFT JOIN users ru ON ru.id = a.responded_by
            LEFT JOIN events e ON e.id = a.event_id
            ORDER BY a.id DESC LIMIT ?''',
         <Object?>[_limit(c, def: 100)],
       ),
     );
+  });
+
+  // Tandai alert SOS sudah ditangani. User yang mengirim mendapat notifikasi bahwa staf sedang merespons.
+  post('/api/admin/emergency/:id/respond', (c) async {
+    final id = pid(c);
+    final a = id == null
+        ? null
+        : await db.one('SELECT id, user_id, responded_at FROM emergency_alerts WHERE id=?', <Object?>[id]);
+    if (a == null) return bad(c, 'Alert not found', 404);
+    if (a['responded_at'] == null) {
+      final changed = (await db.run(
+        'UPDATE emergency_alerts SET responded_at=?, responded_by=? WHERE id=? AND responded_at IS NULL',
+        <Object?>[isoMs(DateTime.now()), c.userId, id],
+      )).changes;
+      if (changed == 1) {
+        await db.run('INSERT INTO notifications(user_id,title,body) VALUES(?,?,?)', <Object?>[
+          a['user_id'],
+          'Help is on the way',
+          'Event staff received your emergency alert and are responding.',
+        ]);
+        await log(c, 'emergency.respond', 'alert:$id');
+      }
+    }
+    await c.json(200, <String, Object?>{'ok': true});
   });
 
   get('/api/admin/feedback', (c) async {

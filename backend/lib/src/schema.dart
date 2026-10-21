@@ -106,6 +106,8 @@ CREATE TABLE IF NOT EXISTS emergency_alerts (
   ticket_code TEXT,
   latitude REAL,
   longitude REAL,
+  responded_at TEXT,
+  responded_by INTEGER REFERENCES users(id),
   created_at TEXT DEFAULT (datetime('now'))
 )''',
   '''
@@ -229,6 +231,8 @@ CREATE TABLE IF NOT EXISTS emergency_alerts (
   ticket_code TEXT,
   latitude DOUBLE PRECISION,
   longitude DOUBLE PRECISION,
+  responded_at TEXT,
+  responded_by BIGINT REFERENCES users(id),
   created_at TEXT DEFAULT to_char(timezone('utc', now()), 'YYYY-MM-DD HH24:MI:SS')
 )''',
   '''

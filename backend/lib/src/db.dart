@@ -87,6 +87,8 @@ class SqliteDb extends AppDb {
     addColumn('events', 'status', "TEXT NOT NULL DEFAULT 'active'");
     addColumn('tickets', 'used_at', 'TEXT');
     addColumn('tickets', 'checked_in_by', 'INTEGER REFERENCES users(id)');
+    addColumn('emergency_alerts', 'responded_at', 'TEXT');
+    addColumn('emergency_alerts', 'responded_by', 'INTEGER REFERENCES users(id)');
     return SqliteDb._(raw);
   }
 
@@ -183,6 +185,8 @@ class PgDb extends AppDb {
     ]) {
       await db._session.execute('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS $col');
     }
+    await db._session.execute('ALTER TABLE emergency_alerts ADD COLUMN IF NOT EXISTS responded_at TEXT');
+    await db._session.execute('ALTER TABLE emergency_alerts ADD COLUMN IF NOT EXISTS responded_by BIGINT');
     return db;
   }
 
