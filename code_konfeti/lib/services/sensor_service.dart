@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,7 +11,9 @@ import '../core/navigation.dart';
 import '../models/event.dart';
 import 'alert_sound.dart';
 import 'emergency_dialog.dart';
+import 'local_db.dart';
 import 'shake_detector.dart';
+import 'sos_outbox.dart';
 
 /// Sensor yang aktif di SEMUA halaman:
 ///  - Gyroscope (sejak aplikasi dibuka, termasuk halaman login): memutar HP cepat seperti setir
@@ -86,9 +89,19 @@ class SensorService {
   }
 
   /// Pilih tiket aktif yang sedang berlangsung (atau tiket aktif pertama) agar staf tahu event-nya.
+  /// Bila server tidak terjangkau, pakai salinan tiket yang tersimpan di HP.
   Future<Ticket?> _pickTicket() async {
+    List<dynamic>? list;
     try {
-      final list = await ApiClient.instance.get('/api/tickets') as List;
+      list = await ApiClient.instance.get('/api/tickets').timeout(const Duration(seconds: 4)) as List;
+    } catch (_) {
+      try {
+        final cached = await LocalDb.instance.getCache(currentUserId(), 'tickets');
+        if (cached != null) list = jsonDecode(cached) as List;
+      } catch (_) {/* tanpa cache: alert tetap dikirim tanpa info tiket */}
+    }
+    if (list == null) return null;
+    try {
       final active = list
           .map((e) => Ticket.fromJson(Map<String, dynamic>.from(e as Map)))
           .where((t) => t.state == 'active')
@@ -114,18 +127,28 @@ class SensorService {
   }
 
   Future<void> _sendEmergency() async {
+    final occurredAt = DateTime.now().toUtc(); // waktu kejadian = saat alert dipicu
     final results = await Future.wait<dynamic>(<Future<dynamic>>[_pickTicket(), _tryPosition()]);
     final ticket = results[0] as Ticket?;
     final pos = results[1] as Position?;
+    final payload = <String, Object?>{
+      if (ticket != null) 'event_id': ticket.eventId,
+      if (ticket != null) 'ticket_code': ticket.code,
+      if (pos != null) 'latitude': pos.latitude,
+      if (pos != null) 'longitude': pos.longitude,
+    };
     try {
-      await ApiClient.instance.post('/api/emergency', <String, Object?>{
-        if (ticket != null) 'event_id': ticket.eventId,
-        if (ticket != null) 'ticket_code': ticket.code,
-        if (pos != null) 'latitude': pos.latitude,
-        if (pos != null) 'longitude': pos.longitude,
-      });
+      await ApiClient.instance.post('/api/emergency', payload);
       AlertSound.instance.playConfirm();
       _toast('Emergency alert sent. Stay where you are, staff are notified.');
+    } on ApiException catch (e) {
+      if (e.status == 0 || e.status >= 500) {
+        // Tidak ada sinyal / server bermasalah: simpan, kirim otomatis begitu koneksi kembali.
+        await SosOutbox.instance.enqueue(payload, occurredAt);
+        _toast('No connection. Your alert is saved and will be sent automatically when you are back online.');
+      } else {
+        _toast('Failed to send alert: $e');
+      }
     } catch (e) {
       _toast('Failed to send alert: $e');
     }

@@ -4,6 +4,8 @@ import '../../core/app_theme.dart';
 import '../../core/config.dart';
 import '../../core/session.dart';
 import '../../core/widgets.dart';
+import '../../services/biometric_service.dart';
+import '../tickets/offline_tickets_page.dart';
 
 /// Halaman login/register (gaya Night Confetti: dark, kaca, tombol kuning di bawah).
 /// Tetap memakai Session.login/register; jika halaman login + biometrik Ilham sudah ada,
@@ -21,10 +23,14 @@ class _LoginPageState extends State<LoginPage> {
   final _password = TextEditingController();
   bool _register = false;
   bool _busy = false;
+  bool _hasSavedTickets = false; // ada salinan tiket di HP -> tampilkan tombol akses offline
 
   @override
   void initState() {
     super.initState();
+    OfflineTicketsPage.hasSavedTickets().then((v) {
+      if (mounted && v) setState(() => _hasSavedTickets = true);
+    });
     // App dibuka dengan biometrik aktif -> langsung munculkan prompt sidik jari/wajah.
     if (Session.instance.promptBiometric) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -54,6 +60,17 @@ class _LoginPageState extends State<LoginPage> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// Buka tiket tersimpan tanpa login (untuk saat tidak ada sinyal). Dikunci dengan sidik jari/wajah/PIN perangkat bila ada.
+  Future<void> _openSavedTickets() async {
+    final bio = BiometricService();
+    if (await bio.isAvailable()) {
+      final ok = await bio.authenticate('view your saved tickets');
+      if (!ok) return;
+    }
+    if (!mounted) return;
+    Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const OfflineTicketsPage()));
   }
 
   Future<void> _biometric() async {
@@ -169,6 +186,16 @@ class _LoginPageState extends State<LoginPage> {
                           );
                         },
                       ),
+                      if (_hasSavedTickets)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: OutlinedButton.icon(
+                            onPressed: _busy ? null : _openSavedTickets,
+                            icon: const Icon(Icons.cloud_off_outlined),
+                            label: const Text('View saved tickets (offline)'),
+                            style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+                          ),
+                        ),
                       TextButton(
                         onPressed: () => setState(() => _register = !_register),
                         child: Text(_register ? 'I already have an account' : 'Create a new account'),

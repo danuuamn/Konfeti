@@ -42,7 +42,10 @@ class LocalDb {
     final path = p.join(await getDatabasesPath(), 'konfeti_local.db');
     return openDatabase(
       path,
-      version: 1,
+      version: 2,
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) await _createOfflineTables(db);
+      },
       onCreate: (db, version) async {
         await db.execute('''
 CREATE TABLE chat_messages (
@@ -59,8 +62,98 @@ CREATE TABLE app_settings (
   setting_value TEXT NOT NULL,
   PRIMARY KEY (user_id, setting_key)
 )''');
+        await _createOfflineTables(db);
       },
     );
+  }
+
+  /// Tabel untuk mode offline: cache data server dan antrean SOS.
+  Future<void> _createOfflineTables(Database db) async {
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS cache_json (
+  user_id INTEGER NOT NULL,
+  cache_key TEXT NOT NULL,
+  json TEXT NOT NULL,
+  saved_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, cache_key)
+)''');
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS sos_outbox (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  payload TEXT NOT NULL,
+  occurred_at TEXT NOT NULL
+)''');
+  }
+
+  // ---------- Cache data server (hanya untuk ditampilkan saat offline) ----------
+  /// Simpan salinan JSON (mis. daftar tiket). Menimpa salinan lama dengan key yang sama.
+  Future<void> putCache(int userId, String key, String json) async {
+    final db = await _db;
+    await db.insert(
+      'cache_json',
+      <String, Object?>{
+        'user_id': userId,
+        'cache_key': key,
+        'json': json,
+        'saved_at': DateTime.now().toUtc().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Ambil salinan JSON, atau null bila belum pernah disimpan.
+  Future<String?> getCache(int userId, String key) async {
+    final db = await _db;
+    final rows = await db.query(
+      'cache_json',
+      columns: <String>['json'],
+      where: 'user_id = ? AND cache_key = ?',
+      whereArgs: <Object?>[userId, key],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first['json'] as String?;
+  }
+
+  /// Akun terakhir yang punya salinan tiket di HP (null = belum ada / sudah dihapus saat logout manual).
+  Future<int?> lastTicketCacheUser() async {
+    final db = await _db;
+    final rows = await db.query(
+      'cache_json',
+      columns: <String>['user_id'],
+      where: 'cache_key = ?',
+      whereArgs: <Object?>['tickets'],
+      orderBy: 'saved_at DESC',
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first['user_id'] as int?;
+  }
+
+  /// Hapus semua cache milik satu akun (dipakai saat logout manual).
+  Future<void> clearCache(int userId) async {
+    final db = await _db;
+    await db.delete('cache_json', where: 'user_id = ?', whereArgs: <Object?>[userId]);
+  }
+
+  // ---------- Antrean SOS offline ----------
+  /// Simpan SOS yang gagal terkirim. [occurredAt] = waktu kejadian di HP (ISO UTC).
+  Future<void> enqueueSos(int userId, String payloadJson, String occurredAt) async {
+    final db = await _db;
+    await db.insert('sos_outbox', <String, Object?>{
+      'user_id': userId,
+      'payload': payloadJson,
+      'occurred_at': occurredAt,
+    });
+  }
+
+  Future<List<Map<String, Object?>>> pendingSos(int userId) async {
+    final db = await _db;
+    return db.query('sos_outbox', where: 'user_id = ?', whereArgs: <Object?>[userId], orderBy: 'id ASC');
+  }
+
+  Future<void> deleteSos(int id) async {
+    final db = await _db;
+    await db.delete('sos_outbox', where: 'id = ?', whereArgs: <Object?>[id]);
   }
 
   // ---------- Riwayat chat ----------

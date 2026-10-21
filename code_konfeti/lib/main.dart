@@ -11,6 +11,7 @@ import 'features/auth/login_page.dart';
 import 'features/shell/main_shell.dart';
 import 'services/notification_service.dart';
 import 'services/sensor_service.dart';
+import 'services/sos_outbox.dart';
 import 'services/time_zones.dart';
 
 // Accelerometer (darurat) dan notifikasi hanya aktif saat login; gyroscope aktif di semua halaman sejak app dibuka.
@@ -19,8 +20,10 @@ void _syncServices() {
   SensorService.instance.setEmergencyEnabled(loggedIn);
   if (loggedIn) {
     NotificationService.instance.start(); // aman dipanggil berulang
+    SosOutbox.instance.start(); // kirim ulang SOS yang tertunda karena offline
   } else {
     NotificationService.instance.stop();
+    SosOutbox.instance.stop();
   }
 }
 

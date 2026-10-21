@@ -1,7 +1,10 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../services/biometric_service.dart';
+import '../services/local_db.dart';
 import 'api_client.dart';
 import 'config.dart';
 
@@ -16,6 +19,7 @@ class Session extends ChangeNotifier {
   static const _kBioToken = 'bio_token';
   static const _kBioMethod = 'bio_method'; // fingerprint | face
   static const _kLastActive = 'last_active'; // ISO 8601
+  static const _kCachedUser = 'cached_user'; // data akun untuk masuk saat offline
 
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
   final BiometricService _bio = BiometricService();
@@ -38,6 +42,26 @@ class Session extends ChangeNotifier {
   bool promptBiometric = false;
 
   DateTime _lastSaved = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Simpan data akun (terenkripsi) agar app tetap bisa dibuka saat offline.
+  Future<void> _saveCachedUser() async {
+    final u = user;
+    if (u == null) return;
+    try {
+      await _storage.write(key: _kCachedUser, value: jsonEncode(u));
+    } catch (_) {}
+  }
+
+  Future<Map<String, dynamic>?> _readCachedUser() async {
+    try {
+      final raw = await _storage.read(key: _kCachedUser);
+      if (raw == null) return null;
+      final j = jsonDecode(raw);
+      return j is Map ? Map<String, dynamic>.from(j) : null;
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// Cek ulang ketersediaan biometrik (mis. setelah pengguna mendaftarkan sidik jari di pengaturan HP).
   Future<void> refreshBiometric() async {
@@ -89,9 +113,14 @@ class Session extends ChangeNotifier {
     ApiClient.instance.token = token;
     try {
       user = Map<String, dynamic>.from(await ApiClient.instance.get('/api/auth/me') as Map);
+      await _saveCachedUser();
       await saveActivity(DateTime.now(), force: true);
     } on ApiException catch (e) {
-      if (e.status == 401) await logout(expired: true); // token basi; error jaringan -> tetap login
+      if (e.status == 401) {
+        await logout(expired: true); // token basi
+      } else if (e.status == 0) {
+        user = await _readCachedUser(); // offline: tetap masuk dengan data akun tersimpan (tiket dari cache)
+      }
     }
     notifyListeners();
   }
@@ -113,6 +142,7 @@ class Session extends ChangeNotifier {
     user = Map<String, dynamic>.from(res['user'] as Map);
     ApiClient.instance.token = token;
     await _storage.write(key: _key, value: token);
+    await _saveCachedUser();
     if (bioEnabled) {
       await _storage.write(key: _kBioToken, value: token);
       hasBioToken = true;
@@ -134,15 +164,21 @@ class Session extends ChangeNotifier {
     ApiClient.instance.token = saved;
     try {
       user = Map<String, dynamic>.from(await ApiClient.instance.get('/api/auth/me') as Map);
+      await _saveCachedUser();
     } on ApiException catch (e) {
-      ApiClient.instance.token = null;
-      if (e.status == 401) {
-        // token biometrik sudah kedaluwarsa -> harus login dengan password sekali lagi
-        await _storage.delete(key: _kBioToken);
-        hasBioToken = false;
-        notifyListeners();
+      final offlineUser = e.status == 0 ? await _readCachedUser() : null;
+      if (offlineUser != null) {
+        user = offlineUser; // offline: biometrik sudah lolos, masuk dengan data akun tersimpan
+      } else {
+        ApiClient.instance.token = null;
+        if (e.status == 401) {
+          // token biometrik sudah kedaluwarsa -> harus login dengan password sekali lagi
+          await _storage.delete(key: _kBioToken);
+          hasBioToken = false;
+          notifyListeners();
+        }
+        rethrow;
       }
-      rethrow;
     }
     token = saved;
     await _storage.write(key: _key, value: saved);
@@ -210,11 +246,20 @@ class Session extends ChangeNotifier {
   /// Keluar. [expired] true bila karena tidak aktif / token kedaluwarsa.
   /// Token biometrik tetap disimpan, jadi pengguna bisa masuk cepat lagi lewat sidik jari/wajah.
   Future<void> logout({bool expired = false}) async {
+    final uid = (user?['id'] as num?)?.toInt() ?? 0;
     token = null;
     user = null;
     ApiClient.instance.token = null;
     await _storage.delete(key: _key);
     await _storage.delete(key: _kLastActive);
+    // Keluar manual: hapus salinan tiket/event di HP. Sesi habis otomatis: salinan dipertahankan
+    // (antrean SOS tidak pernah dihapus di sini supaya alert tertunda tetap terkirim).
+    if (!expired) {
+      try {
+        await _storage.delete(key: _kCachedUser);
+        if (uid != 0) await LocalDb.instance.clearCache(uid);
+      } catch (_) {}
+    }
     sessionExpired = expired;
     notifyListeners();
   }

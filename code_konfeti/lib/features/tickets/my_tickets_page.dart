@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -8,6 +9,7 @@ import '../../core/app_theme.dart';
 import '../../core/widgets.dart';
 import '../../core/formatters.dart';
 import '../../models/event.dart';
+import '../../services/local_db.dart';
 import '../../services/time_zones.dart';
 import '../shell/shell_nav.dart';
 import 'ticket_detail_page.dart';
@@ -26,6 +28,7 @@ class _MyTicketsPageState extends State<MyTicketsPage> with SingleTickerProvider
   List<TicketGroup> _active = <TicketGroup>[];
   List<TicketGroup> _history = <TicketGroup>[];
   bool _loading = true;
+  bool _offline = false; // true = yang tampil adalah salinan tersimpan di HP
   String? _error;
   Timer? _poll;
 
@@ -65,7 +68,33 @@ class _MyTicketsPageState extends State<MyTicketsPage> with SingleTickerProvider
         (results[0] as List).map((e) => Order.fromJson(Map<String, dynamic>.from(e as Map))).toList();
     final tickets =
         (results[1] as List).map((e) => Ticket.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+    // Simpan salinan tiket di HP supaya QR tetap bisa dibuka saat tidak ada sinyal.
+    unawaited(LocalDb.instance
+        .putCache(currentUserId(), 'tickets', jsonEncode(results[1]))
+        .catchError((Object _) {}));
     return (orders, tickets);
+  }
+
+  /// Muat tiket dari salinan lokal (dipakai saat server tidak terjangkau). Mengembalikan false bila belum ada salinan.
+  Future<bool> _loadFromCache() async {
+    try {
+      final raw = await LocalDb.instance.getCache(currentUserId(), 'tickets');
+      if (raw == null) return false;
+      final tickets = (jsonDecode(raw) as List)
+          .map((e) => Ticket.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      if (!mounted) return true;
+      setState(() {
+        _pending = <Order>[]; // status pembayaran harus dari server, jadi tidak ditampilkan offline
+        _active = groupTickets(tickets.where((t) => t.state == 'active').toList());
+        _history = groupTickets(tickets.where((t) => t.state == 'history').toList());
+        _offline = true;
+        _error = null;
+      });
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> _load({bool silent = false}) async {
@@ -85,10 +114,14 @@ class _MyTicketsPageState extends State<MyTicketsPage> with SingleTickerProvider
         // 1 kartu per pemesanan (order), meskipun isinya beberapa tiket
         _active = groupTickets(tickets.where((t) => t.state == 'active').toList());
         _history = groupTickets(tickets.where((t) => t.state == 'history').toList());
+        _offline = false;
         _error = null;
       });
     } catch (e) {
-      if (mounted && !silent) setState(() => _error = e.toString());
+      // Offline: tampilkan tiket tersimpan. Hanya error jaringan (status 0) yang memakai cache.
+      final offlineErr = e is ApiException && e.status == 0;
+      final usedCache = offlineErr && await _loadFromCache();
+      if (!usedCache && mounted && !silent) setState(() => _error = e.toString());
     } finally {
       if (mounted && !silent) setState(() => _loading = false);
     }
@@ -161,18 +194,45 @@ class _MyTicketsPageState extends State<MyTicketsPage> with SingleTickerProvider
         ),
       ),
       body: AppBackground(
-        child: _loading
-            ? _skeletonList()
-            : _error != null
-                ? ErrorState(message: _error!, onRetry: _load)
-                : TabBarView(controller: _tabs, children: <Widget>[
-                    _list(_pending.map(_pendingCard).toList(), Icons.hourglass_empty, 'No pending payments',
-                        'Orders waiting for payment show up here.'),
-                    _list(_active.map(_activeCard).toList(), Icons.confirmation_number_outlined, 'No active tickets yet',
-                        'Buy one from Home!'),
-                    _list(_history.map(_historyCard).toList(), Icons.history, 'No past events', 'Past events will appear here.'),
-                  ]),
+        child: Column(children: <Widget>[
+          if (_offline) _offlineBanner(),
+          Expanded(
+            child: _loading
+                ? _skeletonList()
+                : _error != null
+                    ? ErrorState(message: _error!, onRetry: _load)
+                    : TabBarView(controller: _tabs, children: <Widget>[
+                        _list(_pending.map(_pendingCard).toList(), Icons.hourglass_empty, 'No pending payments',
+                            'Orders waiting for payment show up here.'),
+                        _list(_active.map(_activeCard).toList(), Icons.confirmation_number_outlined,
+                            'No active tickets yet', 'Buy one from Home!'),
+                        _list(_history.map(_historyCard).toList(), Icons.history, 'No past events',
+                            'Past events will appear here.'),
+                      ]),
+          ),
+        ]),
       ),
+    );
+  }
+
+  Widget _offlineBanner() {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.glass,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.glassBorder),
+      ),
+      child: const Row(children: <Widget>[
+        Icon(Icons.cloud_off_outlined, size: 16, color: AppColors.sun),
+        SizedBox(width: 8),
+        Expanded(
+          child: Text('Offline: showing tickets saved on this phone. Pull down to refresh when you are back online.',
+              style: TextStyle(color: AppColors.sky, fontSize: 12)),
+        ),
+      ]),
     );
   }
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
@@ -11,6 +12,7 @@ import '../../core/formatters.dart';
 import '../../core/session.dart';
 import '../../core/widgets.dart';
 import '../../models/event.dart';
+import '../../services/local_db.dart';
 import '../../services/time_zones.dart';
 import 'event_banner.dart';
 import 'event_detail_page.dart';
@@ -32,6 +34,7 @@ class _HomePageState extends State<HomePage> {
   String? _category;
   String _sort = 'start';
   bool _loading = true;
+  bool _offline = false; // true = daftar event berasal dari salinan di HP
   String? _error;
   Position? _pos;
 
@@ -84,6 +87,43 @@ class _HomePageState extends State<HomePage> {
     return Geolocator.distanceBetween(p.latitude, p.longitude, e.latitude!, e.longitude!) / 1000;
   }
 
+  List<Event> _parseEvents(List<dynamic> data) => data
+      .map((e) => Event.fromJson(Map<String, dynamic>.from(e as Map)))
+      .where((e) => !e.hasEnded) // event yang sudah selesai tidak dijual lagi
+      .toList();
+
+  /// Salinan daftar event dari HP (disimpan tiap kali daftar tanpa filter berhasil dimuat).
+  /// Pencarian dan kategori dijalankan di app karena server tidak terjangkau.
+  Future<bool> _loadFromCache() async {
+    try {
+      final raw = await LocalDb.instance.getCache(currentUserId(), 'events');
+      if (raw == null) return false;
+      var list = _parseEvents(jsonDecode(raw) as List);
+      final q = _search.text.trim().toLowerCase();
+      if (q.isNotEmpty) {
+        list = list
+            .where((e) =>
+                e.title.toLowerCase().contains(q) ||
+                e.artistLabel.toLowerCase().contains(q) ||
+                e.venueName.toLowerCase().contains(q))
+            .toList();
+      }
+      if (_category != null) list = list.where((e) => e.category == _category).toList();
+      if (_sort == 'price_asc') list.sort((a, b) => a.priceIdr.compareTo(b.priceIdr));
+      if (_sort == 'price_desc') list.sort((a, b) => b.priceIdr.compareTo(a.priceIdr));
+      if (_sort == 'start' || _sort == 'nearest') list.sort((a, b) => a.startUtc.compareTo(b.startUtc));
+      if (!mounted) return true;
+      setState(() {
+        _events = list;
+        _offline = true;
+        _error = null;
+      });
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -95,13 +135,20 @@ class _HomePageState extends State<HomePage> {
         'sort': _sort == 'nearest' ? 'start' : _sort, // "terdekat" diurutkan di app, berdasarkan lokasi device
         if (_category != null) 'category': _category!,
       }) as List;
-      final list = data
-          .map((e) => Event.fromJson(Map<String, dynamic>.from(e as Map)))
-          .where((e) => !e.hasEnded) // event yang sudah selesai tidak dijual lagi
-          .toList();
-      if (mounted) setState(() => _events = list);
+      // Simpan salinan hanya dari daftar lengkap (tanpa pencarian/kategori) supaya cache tidak terpotong.
+      if (_search.text.trim().isEmpty && _category == null) {
+        unawaited(LocalDb.instance.putCache(currentUserId(), 'events', jsonEncode(data)).catchError((Object _) {}));
+      }
+      if (mounted) {
+        setState(() {
+          _events = _parseEvents(data);
+          _offline = false;
+        });
+      }
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      // Hanya error jaringan (status 0) yang memakai salinan lokal.
+      final usedCache = e is ApiException && e.status == 0 && await _loadFromCache();
+      if (!usedCache && mounted) setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -348,6 +395,26 @@ class _HomePageState extends State<HomePage> {
     final columns = width > 800 ? 4 : (width > 520 ? 3 : 2);
 
     return <Widget>[
+      if (_offline)
+        SliverToBoxAdapter(
+          child: Container(
+            margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.glass,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.glassBorder),
+            ),
+            child: const Row(children: <Widget>[
+              Icon(Icons.cloud_off_outlined, size: 16, color: AppColors.sun),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text('Offline: showing events saved on this phone. Prices and stock may be outdated.',
+                    style: TextStyle(color: AppColors.sky, fontSize: 12)),
+              ),
+            ]),
+          ),
+        ),
       SliverToBoxAdapter(child: SectionHeader(live.isNotEmpty ? 'Live Concert' : 'Featured Concert', live: live.isNotEmpty)),
       SliverToBoxAdapter(
         child: Padding(

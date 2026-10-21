@@ -18,10 +18,28 @@ void registerEmergency(Router r, AppDb db) {
     final evId = truthy(eventId) ? int.tryParse(eventId.toString()) : null;
     final ev = evId != null ? await db.one('SELECT id, title FROM events WHERE id=?', <Object?>[evId]) : null;
     final ticketCode = b['ticket_code'];
-    final newId = await db.insert(
-      'INSERT INTO emergency_alerts(user_id,event_id,ticket_code,latitude,longitude) VALUES(?,?,?,?,?)',
-      <Object?>[c.userId, ev?['id'], truthy(ticketCode) ? ticketCode.toString() : null, lat, lon],
-    );
+
+    // Alert yang tertunda karena HP offline mengirim waktu kejadian aslinya (occurred_at, ISO UTC).
+    // Dipakai hanya bila masuk akal: tidak lebih dari 7 hari lalu dan tidak di masa depan.
+    DateTime? occurred;
+    if (truthy(b['occurred_at'])) {
+      final t = DateTime.tryParse(b['occurred_at'].toString());
+      final now = DateTime.now().toUtc();
+      if (t != null && t.isAfter(now.subtract(const Duration(days: 7))) && !t.isAfter(now.add(const Duration(minutes: 5)))) {
+        occurred = t.toUtc();
+      }
+    }
+
+    final code = truthy(ticketCode) ? ticketCode.toString() : null;
+    final newId = occurred == null
+        ? await db.insert(
+            'INSERT INTO emergency_alerts(user_id,event_id,ticket_code,latitude,longitude) VALUES(?,?,?,?,?)',
+            <Object?>[c.userId, ev?['id'], code, lat, lon],
+          )
+        : await db.insert(
+            'INSERT INTO emergency_alerts(user_id,event_id,ticket_code,latitude,longitude,created_at) VALUES(?,?,?,?,?,?)',
+            <Object?>[c.userId, ev?['id'], code, lat, lon, sqlTs(occurred)],
+          );
     await db.run('INSERT INTO notifications(user_id,title,body) VALUES(?,?,?)', <Object?>[
       c.userId,
       'Emergency alert sent',

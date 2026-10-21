@@ -11,6 +11,7 @@ import '../../core/formatters.dart';
 import '../../core/session.dart';
 import '../../core/widgets.dart';
 import '../../models/event.dart';
+import '../../services/checkout_draft.dart';
 import '../../services/time_zones.dart';
 import '../shell/shell_nav.dart';
 
@@ -34,6 +35,8 @@ class _CheckoutPageState extends State<CheckoutPage> {
       TextEditingController(text: Session.instance.user?['name']?.toString() ?? '');
   final TextEditingController _age = TextEditingController();
   String? _gender; // 'Male' | 'Female'
+  CheckoutDraft? _draft; // data diri dari pembelian sebelumnya (jika ada)
+  bool _draftHandled = false; // true setelah user memilih "use saved" / "type again"
   int _qty = 1;
   int _discountPercent = 0;
   String? _appliedCode;
@@ -48,6 +51,38 @@ class _CheckoutPageState extends State<CheckoutPage> {
   void initState() {
     super.initState();
     _loadRates();
+    _loadDraft();
+  }
+
+  Future<void> _loadDraft() async {
+    final d = await CheckoutDraft.load();
+    if (mounted && d != null) setState(() => _draft = d);
+  }
+
+  void _useDraft() {
+    final d = _draft!;
+    setState(() {
+      _fullName.text = d.name;
+      _nik.text = d.nik;
+      _age.text = d.age;
+      _gender = (d.gender == 'Male' || d.gender == 'Female') ? d.gender : null;
+      _draftHandled = true;
+    });
+  }
+
+  void _typeAgain() {
+    setState(() {
+      _fullName.clear();
+      _nik.clear();
+      _age.clear();
+      _gender = null;
+      _draftHandled = true;
+    });
+  }
+
+  Future<void> _forgetDraft() async {
+    await CheckoutDraft.clear();
+    if (mounted) setState(() => _draft = null);
   }
 
   @override
@@ -118,6 +153,13 @@ class _CheckoutPageState extends State<CheckoutPage> {
         if (_appliedCode != null) 'promo_code': _appliedCode,
       }) as Map;
       final orderId = res['order_id'] as String;
+      // Order berhasil dibuat: simpan data diri untuk pembelian berikutnya.
+      await CheckoutDraft.save(
+        name: _fullName.text.trim(),
+        nik: _nik.text.trim(),
+        age: _age.text.trim(),
+        gender: _gender ?? '',
+      );
       if (!mounted) return;
 
       if (res['demo'] == true) {
@@ -210,6 +252,30 @@ class _CheckoutPageState extends State<CheckoutPage> {
             ]),
           ),
           const SectionHeader('Personal data', padding: EdgeInsets.fromLTRB(0, 20, 0, 10)),
+          if (_draft != null && !_draftHandled) ...<Widget>[
+            GlassCard(
+              highlight: true,
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+                const Text('Use your saved data?', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                const SizedBox(height: 4),
+                Text(
+                  '${_draft!.name} • NIK ${_draft!.maskedNik}\n${_draft!.age} years • ${_draft!.gender}',
+                  style: const TextStyle(color: AppColors.sky, fontSize: 13, height: 1.4),
+                ),
+                const SizedBox(height: 12),
+                Row(children: <Widget>[
+                  Expanded(child: FilledButton(onPressed: _useDraft, child: const Text('Use saved data'))),
+                  const SizedBox(width: 8),
+                  Expanded(child: OutlinedButton(onPressed: _typeAgain, child: const Text('Type again'))),
+                ]),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(onPressed: _forgetDraft, child: const Text('Delete saved data')),
+                ),
+              ]),
+            ),
+            const SizedBox(height: 12),
+          ],
           GlassCard(
             blur: true,
             child: Form(

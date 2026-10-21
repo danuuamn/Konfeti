@@ -9,12 +9,12 @@ import '../../core/config.dart';
 import '../../core/navigation.dart';
 import '../../core/session.dart';
 import '../../core/widgets.dart';
+import '../../services/local_db.dart';
 import '../../services/notification_service.dart';
-import 'feedback_page.dart';
 import 'notifications_page.dart';
 import 'settings_page.dart';
 
-/// Tab Profile: foto + nama, notifikasi, saran & kesan mata kuliah, pengaturan, dan logout.
+/// Tab Profile: foto + nama, kartu kesan & pesan mata kuliah (bisa diedit), notifikasi, pengaturan, dan logout.
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
 
@@ -24,6 +24,100 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage> {
   bool _uploading = false;
+  Map<String, dynamic>? _note; // kesan & pesan terbaru (null = belum pernah menulis)
+  bool _noteLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadNote();
+  }
+
+  /// Ambil kesan & pesan terbaru dari server; bila offline pakai salinan di HP.
+  Future<void> _loadNote() async {
+    try {
+      final list = await ApiClient.instance.get('/api/feedback') as List;
+      final latest = list.isEmpty ? null : Map<String, dynamic>.from(list.first as Map);
+      try {
+        await LocalDb.instance.putCache(currentUserId(), 'feedback', jsonEncode(latest));
+      } catch (_) {}
+      if (mounted) setState(() => _note = latest);
+    } catch (_) {
+      try {
+        final raw = await LocalDb.instance.getCache(currentUserId(), 'feedback');
+        final j = raw == null ? null : jsonDecode(raw);
+        if (mounted && j is Map) setState(() => _note = Map<String, dynamic>.from(j));
+      } catch (_) {}
+    } finally {
+      if (mounted) setState(() => _noteLoading = false);
+    }
+  }
+
+  Future<void> _editNote() async {
+    final result = await showDialog<({int rating, String message})>(
+      context: context,
+      builder: (_) => _NoteDialog(
+        initialRating: ((_note?['rating'] as num?) ?? 0).toInt(),
+        initialMessage: (_note?['message'] ?? '').toString(),
+      ),
+    );
+    if (result == null) return;
+    try {
+      final body = <String, Object?>{'rating': result.rating, 'message': result.message};
+      final id = (_note?['id'] as num?)?.toInt();
+      final res = id == null
+          ? await ApiClient.instance.post('/api/feedback', body)
+          : await ApiClient.instance.put('/api/feedback/$id', body);
+      final saved = Map<String, dynamic>.from(res as Map);
+      try {
+        await LocalDb.instance.putCache(currentUserId(), 'feedback', jsonEncode(saved));
+      } catch (_) {}
+      if (mounted) setState(() => _note = saved);
+      _snack('Saved.');
+    } catch (e) {
+      _snack(e.toString());
+    }
+  }
+
+  /// Kartu deskripsi "Kesan & Pesan" mata kuliah Pemrograman Aplikasi Mobile (bisa diedit).
+  Widget _noteCard() {
+    final rating = ((_note?['rating'] as num?) ?? 0).toInt();
+    final message = (_note?['message'] ?? '').toString();
+    return AppCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+        Row(children: <Widget>[
+          const Expanded(
+            child: Text('Impressions & Message',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+          ),
+          IconButton(
+            tooltip: 'Edit',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.edit_outlined, size: 18),
+            onPressed: _noteLoading ? null : _editNote,
+          ),
+        ]),
+        const Text('Mobile Application Programming', style: TextStyle(color: AppColors.sky, fontSize: 12)),
+        const SizedBox(height: 8),
+        if (_noteLoading)
+          const SizedBox(height: 20, child: LinearProgressIndicator())
+        else if (_note == null)
+          GestureDetector(
+            onTap: _editNote,
+            child: const Text('Tap to write your impressions and message for this course.',
+                style: TextStyle(color: AppColors.skyDim, height: 1.4)),
+          )
+        else ...<Widget>[
+          Row(children: <Widget>[
+            for (var i = 1; i <= 5; i++)
+              Icon(i <= rating ? Icons.star_rounded : Icons.star_outline_rounded, size: 18, color: AppColors.sun),
+          ]),
+          const SizedBox(height: 8),
+          Text(message, style: const TextStyle(height: 1.45)),
+        ],
+      ]),
+    );
+  }
 
   /// avatar_url dari server berbentuk relatif (/uploads/avatars/...), jadi tambahkan alamat server.
   String? _avatarUrl(Map<String, dynamic>? user) {
@@ -186,7 +280,9 @@ class _ProfilePageState extends State<ProfilePage> {
               IconButton(tooltip: 'Edit name', icon: const Icon(Icons.edit_outlined, size: 18), onPressed: _editName),
             ]),
             Center(child: Text(email, style: const TextStyle(color: AppColors.sky))),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
+            _noteCard(),
+            const SizedBox(height: 20),
             _menu(
               icon: Icons.notifications_outlined,
               title: 'Notifications',
@@ -199,12 +295,6 @@ class _ProfilePageState extends State<ProfilePage> {
                   const Icon(Icons.chevron_right),
                 ]),
               ),
-            ),
-            _menu(
-              icon: Icons.rate_review_outlined,
-              title: 'Course Feedback',
-              subtitle: 'Impressions & suggestions for Mobile Application Programming',
-              onTap: () => _open(const FeedbackPage()),
             ),
             _menu(
               icon: Icons.settings_outlined,
@@ -257,6 +347,74 @@ class _NameDialogState extends State<_NameDialog> {
       actions: <Widget>[
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
         FilledButton(onPressed: () => Navigator.pop(context, _controller.text.trim()), child: const Text('Save')),
+      ],
+    );
+  }
+}
+
+/// Dialog tulis/ubah kesan & pesan: bintang 1-5 + teks.
+class _NoteDialog extends StatefulWidget {
+  const _NoteDialog({required this.initialRating, required this.initialMessage});
+  final int initialRating;
+  final String initialMessage;
+
+  @override
+  State<_NoteDialog> createState() => _NoteDialogState();
+}
+
+class _NoteDialogState extends State<_NoteDialog> {
+  late final TextEditingController _controller = TextEditingController(text: widget.initialMessage);
+  late int _rating = widget.initialRating;
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final text = _controller.text.trim();
+    if (_rating < 1) {
+      setState(() => _error = 'Please give a rating first.');
+      return;
+    }
+    if (text.length < 3) {
+      setState(() => _error = 'Please write at least 3 characters.');
+      return;
+    }
+    Navigator.pop(context, (rating: _rating, message: text));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Impressions & Message'),
+      content: SingleChildScrollView(
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: <Widget>[
+            for (var i = 1; i <= 5; i++)
+              IconButton(
+                tooltip: '$i star${i == 1 ? '' : 's'}',
+                visualDensity: VisualDensity.compact,
+                onPressed: () => setState(() => _rating = i),
+                icon: Icon(i <= _rating ? Icons.star_rounded : Icons.star_outline_rounded, color: AppColors.sun, size: 30),
+              ),
+          ]),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _controller,
+            minLines: 4,
+            maxLines: 8,
+            maxLength: 1000,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: InputDecoration(hintText: 'Your impressions and message...', errorText: _error),
+          ),
+        ]),
+      ),
+      actions: <Widget>[
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(onPressed: _save, child: const Text('Save')),
       ],
     );
   }
