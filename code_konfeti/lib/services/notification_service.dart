@@ -7,13 +7,16 @@ import 'package:timezone/timezone.dart' as tz;
 import '../core/api_client.dart';
 import '../core/session.dart';
 import '../models/event.dart';
+import 'background_notifier.dart';
 import 'local_db.dart';
 import 'time_zones.dart';
 
 /// Notifikasi mobile tanpa Firebase:
 ///  1. Polling GET /api/notifications (promo, status pembayaran, darurat) -> tampil sebagai notifikasi lokal.
 ///  2. Pengingat konser (H-1 dan 3 jam sebelumnya) dijadwalkan di perangkat dari daftar tiket aktif.
-/// Notifikasi hanya muncul selama aplikasi masih hidup (foreground/background), karena tidak ada push server.
+///  3. Saat aplikasi ditutup (Android): tugas latar belakang WorkManager (lihat background_notifier.dart)
+///     mengecek server tiap ~15 menit dan menampilkan notifikasi baru. Tanpa Firebase/push server,
+///     jadi notifikasi dari server tidak instan; pengingat konser (poin 2) tetap tepat waktu.
 class NotificationService with WidgetsBindingObserver {
   NotificationService._();
   static final NotificationService instance = NotificationService._();
@@ -22,7 +25,7 @@ class NotificationService with WidgetsBindingObserver {
   static const String settingEnabled = 'notifications_enabled';
   static const String _settingLastId = 'last_notif_id';
 
-  static const NotificationDetails _details = NotificationDetails(
+  static const NotificationDetails details = NotificationDetails(
     android: AndroidNotificationDetails(
       'konfeti_main',
       'Konfeti notifications',
@@ -76,6 +79,7 @@ class NotificationService with WidgetsBindingObserver {
 
   Future<void> _boot() async {
     await _init();
+    await BackgroundNotifier.register(currentUserId()); // notifikasi saat app ditutup
     await poll();
     await syncReminders();
   }
@@ -85,6 +89,7 @@ class NotificationService with WidgetsBindingObserver {
     _timer?.cancel();
     _timer = null;
     unread.value = 0;
+    unawaited(BackgroundNotifier.cancel());
     if (_ready) {
       unawaited(_plugin.cancelAll().catchError((Object _) {}));
     }
@@ -126,7 +131,7 @@ class NotificationService with WidgetsBindingObserver {
           id: idOf(n),
           title: (n['title'] ?? 'Konfeti').toString(),
           body: (n['body'] ?? '').toString(),
-          notificationDetails: _details,
+          notificationDetails: details,
         );
       }
       // pembayaran baru biasanya berarti ada tiket baru -> jadwalkan pengingatnya
@@ -186,7 +191,7 @@ class NotificationService with WidgetsBindingObserver {
       body: body,
       // hanya instan waktunya yang penting, zona apa pun menghasilkan jadwal yang sama
       scheduledDate: tz.TZDateTime.from(fireAt, tz.getLocation('Asia/Jakarta')),
-      notificationDetails: _details,
+      notificationDetails: details,
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
     );
   }
@@ -195,6 +200,6 @@ class NotificationService with WidgetsBindingObserver {
   Future<void> showNow(String title, String body) async {
     await _init();
     if (!_ready) return;
-    await _plugin.show(id: 999999, title: title, body: body, notificationDetails: _details);
+    await _plugin.show(id: 999999, title: title, body: body, notificationDetails: details);
   }
 }

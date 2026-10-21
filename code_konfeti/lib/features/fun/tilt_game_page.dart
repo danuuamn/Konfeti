@@ -15,7 +15,9 @@ import '../../services/sensor_service.dart';
 /// dan menangkap konfeti yang jatuh. Hindari bom! 60 detik, 3 nyawa.
 ///
 /// Sensor: GYROSCOPE (kecepatan putar sumbu Z) diintegralkan menjadi sudut miring, lalu dikoreksi pelan
-/// oleh accelerometer (filter komplementer) supaya tidak drift. Layar juga bisa digeser dengan jari sebagai cadangan.
+/// oleh accelerometer (filter komplementer) supaya tidak drift.
+/// Kontrol HANYA lewat sensor: menggeser layar dengan jari tidak menggerakkan karakter.
+/// HP tanpa gyroscope tidak bisa memainkan game ini (tombol Start dinonaktifkan dengan keterangan).
 class TiltGamePage extends StatefulWidget {
   const TiltGamePage({super.key});
 
@@ -83,6 +85,9 @@ class _TiltGamePageState extends State<TiltGamePage> with SingleTickerProviderSt
 
   StreamSubscription<GyroscopeEvent>? _gyroSub;
   StreamSubscription<AccelerometerEvent>? _accSub;
+  Timer? _gyroWatch; // menunggu event gyroscope pertama
+  bool _gyroSeen = false;
+  bool _noGyro = false; // tidak ada data gyroscope -> game tidak bisa dimainkan
   final Stopwatch _clock = Stopwatch()..start();
   int? _lastGyroUs;
   int? _lastAccUs;
@@ -138,8 +143,12 @@ class _TiltGamePageState extends State<TiltGamePage> with SingleTickerProviderSt
 
     _gyroSub = gyroscopeEventStream(samplingPeriod: SensorInterval.gameInterval).listen(
       _onGyro,
-      onError: (Object _) {/* tanpa gyroscope: pakai geser jari */},
+      onError: (Object _) => _setNoGyro(),
     );
+    // gyroscope yang ada selalu mengirim data terus-menerus; bila 2 detik tidak ada sama sekali, anggap tidak tersedia
+    _gyroWatch = Timer(const Duration(seconds: 2), () {
+      if (!_gyroSeen) _setNoGyro();
+    });
     _accSub = accelerometerEventStream(samplingPeriod: SensorInterval.gameInterval).listen(
       _onAccel,
       onError: (Object _) {/* tanpa accelerometer: gyroscope saja */},
@@ -152,6 +161,7 @@ class _TiltGamePageState extends State<TiltGamePage> with SingleTickerProviderSt
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     SensorService.instance.twistEnabled = true;
+    _gyroWatch?.cancel();
     _gyroSub?.cancel();
     _accSub?.cancel();
     _ticker.dispose();
@@ -180,7 +190,16 @@ class _TiltGamePageState extends State<TiltGamePage> with SingleTickerProviderSt
 
   // ---------------- Sensor ----------------
 
+  void _setNoGyro() {
+    if (!mounted || _gyroSeen || _noGyro) return;
+    setState(() => _noGyro = true);
+  }
+
   void _onGyro(GyroscopeEvent e) {
+    if (!_gyroSeen) {
+      _gyroSeen = true;
+      if (_noGyro && mounted) setState(() => _noGyro = false);
+    }
     final us = _clock.elapsedMicroseconds;
     final last = _lastGyroUs;
     _lastGyroUs = us;
@@ -424,22 +443,14 @@ class _TiltGamePageState extends State<TiltGamePage> with SingleTickerProviderSt
       body: LayoutBuilder(builder: (context, c) {
         _size = Size(c.maxWidth, c.maxHeight);
         _px = _px < 0 ? _size.width / 2 : _clampD(_px, _bodyW / 2, math.max(_bodyW / 2, _size.width - _bodyW / 2));
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          // cadangan tanpa sensor (emulator, HP tanpa gyroscope) dan untuk presentasi
-          onHorizontalDragUpdate: (d) {
-            if (_phase == _Phase.playing || _phase == _Phase.ready) {
-              _px = _clampD(_px + d.delta.dx, _bodyW / 2, math.max(_bodyW / 2, _size.width - _bodyW / 2));
-            }
-          },
-          child: Stack(children: <Widget>[
-            Positioned.fill(child: CustomPaint(painter: _TiltPainter(this))),
-            if (_phase == _Phase.playing || _phase == _Phase.paused) _hud(),
-            if (_phase == _Phase.ready) _overlay(_readyCard()),
-            if (_phase == _Phase.paused) _overlay(_pausedCard()),
-            if (_phase == _Phase.over) _overlay(_overCard()),
-          ]),
-        );
+        // Sengaja tanpa GestureDetector: karakter hanya bergerak lewat kemiringan HP (gyroscope).
+        return Stack(children: <Widget>[
+          Positioned.fill(child: CustomPaint(painter: _TiltPainter(this))),
+          if (_phase == _Phase.playing || _phase == _Phase.paused) _hud(),
+          if (_phase == _Phase.ready) _overlay(_readyCard()),
+          if (_phase == _Phase.paused) _overlay(_pausedCard()),
+          if (_phase == _Phase.over) _overlay(_overCard()),
+        ]);
       }),
     );
   }
@@ -487,7 +498,7 @@ class _TiltGamePageState extends State<TiltGamePage> with SingleTickerProviderSt
         const SizedBox(height: 8),
         const Text(
           'Hold your phone upright and tilt it left or right like a steering wheel to move. '
-          'You can also drag with your finger.',
+          'The screen cannot be dragged: only the gyroscope controls the game.',
           textAlign: TextAlign.center,
           style: TextStyle(color: AppColors.sky, height: 1.4),
         ),
@@ -504,7 +515,18 @@ class _TiltGamePageState extends State<TiltGamePage> with SingleTickerProviderSt
         ),
         if (_best != null) ...<Widget>[const SizedBox(height: 10), Tag('Best: $_best pts')],
         const SizedBox(height: 16),
-        SizedBox(width: double.infinity, child: FilledButton(onPressed: _start, child: const Text('Start'))),
+        if (_noGyro) ...<Widget>[
+          const Text(
+            'No gyroscope data detected. This game needs a phone with a gyroscope (emulators usually do not have one).',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppColors.danger, fontSize: 12.5, height: 1.3),
+          ),
+          const SizedBox(height: 10),
+        ],
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton(onPressed: _noGyro ? null : _start, child: const Text('Start')),
+        ),
         const SizedBox(height: 6),
         const Text(
           'Moving the wrong way? Use the ⇄ button at the top.',

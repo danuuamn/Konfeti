@@ -15,6 +15,7 @@ import '../tickets/artist_section.dart';
 import 'event_banner.dart';
 import 'event_times_card.dart';
 import 'venue_map_preview.dart';
+import 'weather_card.dart';
 
 class EventDetailPage extends StatefulWidget {
   const EventDetailPage({super.key, required this.event, this.heroTag});
@@ -150,7 +151,12 @@ class _EventDetailPageState extends State<EventDetailPage> {
 
             const SectionHeader('Venue Location', padding: EdgeInsets.fromLTRB(0, 24, 0, 12)),
             VenueMapPreview(event: e),
-            // TODO(Danu): widget cuaca (OpenWeatherMap) bisa diletakkan di sini.
+
+            // ---- Cuaca di venue (OpenWeatherMap lewat backend); event yang sudah selesai tidak perlu ----
+            if (!e.hasEnded && e.latitude != null && e.longitude != null) ...<Widget>[
+              const SectionHeader('Weather at the Venue', padding: EdgeInsets.fromLTRB(0, 24, 0, 12)),
+              WeatherCard(key: ValueKey<int>(e.id), event: e),
+            ],
           ]),
         ),
       ]),
