@@ -29,7 +29,7 @@ Future<String> _generate(String model, String instruction, List<Map<String, Stri
               .toList(),
         }),
       )
-      .timeout(const Duration(seconds: 60));
+      .timeout(const Duration(seconds: 20)); // 3 percobaan maksimal ~65 detik, di bawah batas klien 60 detik + retry
 
   final text = utf8.decode(resp.bodyBytes);
   if (resp.statusCode != 200) {

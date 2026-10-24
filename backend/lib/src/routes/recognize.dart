@@ -72,6 +72,9 @@ void registerRecognize(Router r) {
 
       final res = _map(j['result']);
       if (res == null || (res['title'] ?? '').toString().isEmpty) {
+        print('AudD: no match (${bytes.length} bytes sent). Raw: ${utf8.decode(resp.bodyBytes).replaceAll(RegExp(r"\s+"), " ")}');
+      }
+      if (res == null || (res['title'] ?? '').toString().isEmpty) {
         await c.json(200, <String, Object?>{'found': false});
         return;
       }
