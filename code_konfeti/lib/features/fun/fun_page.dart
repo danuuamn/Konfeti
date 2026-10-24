@@ -10,6 +10,7 @@ import '../shell/shell_nav.dart';
 import '../tickets/artist_section.dart';
 import 'memory_game_page.dart';
 import 'quiz_game_page.dart';
+import 'song_recognizer_page.dart';
 import 'tilt_game_page.dart';
 
 /// Tab Entertainment: mini games, trailer / video live, dan profil artis dari Spotify.
@@ -127,7 +128,31 @@ class _FunPageState extends State<FunPage> {
     return Scaffold(
       appBar: AppBar(title: const Text('Entertainment'), actions: const <Widget>[RotateButton()]),
       body: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 24), children: <Widget>[
-        const SectionHeader('Mini Games', padding: EdgeInsets.fromLTRB(0, 8, 0, 10)),
+        const SectionHeader('Song Finder', padding: EdgeInsets.fromLTRB(0, 8, 0, 10)),
+        AppCard(
+          margin: const EdgeInsets.only(bottom: 4),
+          onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const SongRecognizerPage())),
+          child: Row(children: <Widget>[
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(color: AppColors.sun, borderRadius: BorderRadius.circular(14)),
+              child: const Icon(Icons.graphic_eq_rounded, color: AppColors.ink, size: 30),
+            ),
+            const SizedBox(width: 14),
+            const Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+                Text('What song is this?', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                SizedBox(height: 2),
+                Text('Hold your phone near the music and we will identify it, like Shazam.',
+                    style: TextStyle(color: AppColors.sky, fontSize: 12.5, height: 1.3)),
+              ]),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.mic_rounded, color: AppColors.sun, size: 32),
+          ]),
+        ),
+        const SectionHeader('Mini Games', padding: EdgeInsets.fromLTRB(0, 18, 0, 10)),
         _gameCard(
           icon: Icons.music_note_rounded,
           title: 'Guess the Artist',

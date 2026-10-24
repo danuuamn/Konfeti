@@ -26,6 +26,8 @@ class _ChatPageState extends State<ChatPage> {
     'Recommend a concert under Rp 500.000',
     'Which events still have tickets?',
     'What is the cheapest event?',
+    'What should I wear to a rock concert?',
+    'Tell me about Tulus',
     'Plan my day for a concert',
   ];
 
@@ -200,7 +202,7 @@ class _ChatPageState extends State<ChatPage> {
       ),
       const SizedBox(height: 6),
       const Text(
-        'Schedules, prices, ticket availability and recommendations.\nPowered by Gemini.',
+        'Concerts, tickets, songs, artists and concert outfits.\nI only answer topics related to concerts and music. Powered by Gemini.',
         textAlign: TextAlign.center,
         style: TextStyle(color: AppColors.sky, height: 1.4),
       ),
@@ -306,7 +308,7 @@ class _ChatPageState extends State<ChatPage> {
               textCapitalization: TextCapitalization.sentences,
               onSubmitted: (_) => _send(),
               decoration: const InputDecoration(
-                hintText: 'Ask about concerts, tickets, venues...',
+                hintText: 'Ask about concerts, music, artists, outfits...',
                 counterText: '',
                 isDense: true,
                 contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),

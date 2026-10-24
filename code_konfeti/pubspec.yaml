@@ -22,6 +22,7 @@ dependencies:
   local_auth: ^2.3.0
   path: ^1.9.1
   qr_flutter: ^4.1.0
+  record: ^7.1.1
   sensors_plus: ^7.1.1
   sqflite: ^2.4.4+2
   timezone: ^0.11.1

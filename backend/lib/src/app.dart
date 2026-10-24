@@ -12,6 +12,7 @@ import 'routes/notifications.dart';
 import 'routes/orders.dart';
 import 'routes/promos.dart';
 import 'routes/rates.dart';
+import 'routes/recognize.dart';
 import 'routes/spotify.dart';
 import 'routes/tickets.dart';
 import 'routes/weather.dart';
@@ -47,6 +48,7 @@ Future<void> runServer() async {
         'gemini': Env.has('GEMINI_API_KEY'),
         'spotify': Env.has('SPOTIFY_CLIENT_ID') && Env.has('SPOTIFY_CLIENT_SECRET'),
         'weather': Env.has('OPENWEATHER_API_KEY'),
+        'recognize': Env.has('AUDD_API_TOKEN'),
       },
     });
   });
@@ -64,6 +66,7 @@ Future<void> runServer() async {
   registerWeather(router);
   registerSpotify(router, db);
   registerChat(router, db);
+  registerRecognize(router);
 
   final port = int.tryParse(Env.get('PORT', '3000')) ?? 3000;
   await AppServer(router).serve(port);
