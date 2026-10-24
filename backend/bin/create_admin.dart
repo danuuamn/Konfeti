@@ -26,7 +26,8 @@ Future<void> main(List<String> args) async {
     exit(64);
   }
 
-  final db = await AppDb.open();
+  // Akun selalu di SQLite lokal, apa pun isi DATABASE_URL.
+  final db = Env.get('DATABASE_URL').isEmpty ? await AppDb.open() : SqliteDb.openUsersOnly();
   final existing = await db.one('SELECT id FROM users WHERE email=?', <Object?>[email]);
   if (existing != null) {
     await db.run("UPDATE users SET role='admin' WHERE email=?", <Object?>[email]);

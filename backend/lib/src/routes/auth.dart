@@ -59,7 +59,8 @@ List<int>? _decodeBase64(String input) {
   }
 }
 
-void registerAuth(Router r, AppDb db) {
+/// [db] = database utama (notifikasi, dll); [udb] = SQLite khusus akun/login.
+void registerAuth(Router r, AppDb db, AppDb udb) {
   r.post('/api/auth/register', (c) async {
     final b = c.bodyMap;
     final name = b['name'];
@@ -70,12 +71,12 @@ void registerAuth(Router r, AppDb db) {
       return;
     }
     final emailStr = email as String;
-    if (await db.one('SELECT 1 AS x FROM users WHERE email=?', <Object?>[emailStr]) != null) {
+    if (await udb.one('SELECT 1 AS x FROM users WHERE email=?', <Object?>[emailStr]) != null) {
       await c.json(409, <String, Object?>{'message': 'Email already registered'});
       return;
     }
     final hash = await _hashPassword(password);
-    final newId = await db.insert(
+    final newId = await udb.insert(
       'INSERT INTO users(name,email,password_hash) VALUES(?,?,?)',
       <Object?>[name.trim(), emailStr, hash],
     );
@@ -95,7 +96,7 @@ void registerAuth(Router r, AppDb db) {
     final b = c.bodyMap;
     final email = (b['email'] ?? '').toString();
     final password = (b['password'] ?? '').toString();
-    final u = await db.one('SELECT * FROM users WHERE email=?', <Object?>[email]);
+    final u = await udb.one('SELECT * FROM users WHERE email=?', <Object?>[email]);
     if (u == null || !await _checkPassword(password, u['password_hash'] as String)) {
       await c.json(401, <String, Object?>{'message': 'Invalid email or password'});
       return;
@@ -107,7 +108,7 @@ void registerAuth(Router r, AppDb db) {
   });
 
   r.get('/api/auth/me', (c) async {
-    final u = await _userById(db, c.userId);
+    final u = await _userById(udb, c.userId);
     if (u == null) {
       await c.json(404, <String, Object?>{'message': 'User not found'});
       return;
@@ -122,8 +123,8 @@ void registerAuth(Router r, AppDb db) {
       await c.json(400, <String, Object?>{'message': 'Name must be 2-60 characters'});
       return;
     }
-    await db.run('UPDATE users SET name=? WHERE id=?', <Object?>[name.trim(), c.userId]);
-    await c.json(200, await _userById(db, c.userId));
+    await udb.run('UPDATE users SET name=? WHERE id=?', <Object?>[name.trim(), c.userId]);
+    await c.json(200, await _userById(udb, c.userId));
   }, auth: true);
 
   // Upload foto profil (base64 JPEG/PNG, maks ~3 MB)
@@ -148,7 +149,7 @@ void registerAuth(Router r, AppDb db) {
     await dir.create(recursive: true);
     final file = 'user-${c.userId}-${DateTime.now().millisecondsSinceEpoch}.${isPng ? 'png' : 'jpg'}';
     await File('${dir.path}${Platform.pathSeparator}$file').writeAsBytes(buf);
-    await db.run('UPDATE users SET avatar_url=? WHERE id=?', <Object?>['/uploads/avatars/$file', c.userId]);
-    await c.json(200, await _userById(db, c.userId));
+    await udb.run('UPDATE users SET avatar_url=? WHERE id=?', <Object?>['/uploads/avatars/$file', c.userId]);
+    await c.json(200, await _userById(udb, c.userId));
   }, auth: true);
 }

@@ -1,13 +1,14 @@
 import '../db.dart';
 import '../services/blockchain.dart';
+import '../services/users.dart';
 import '../util.dart';
 import '../web.dart';
 import 'spotify.dart' show fetchArtistImage;
 
 /// Semua route di sini hanya untuk akun dengan role 'admin'. Peran dicek di SERVER pada setiap request
 /// (dibaca dari database, bukan dari token), jadi user biasa tidak bisa menembusnya.
-Handler _adminOnly(AppDb db, Handler h) => (Ctx c) async {
-      final u = await db.one('SELECT role FROM users WHERE id=?', <Object?>[c.userId]);
+Handler _adminOnly(AppDb udb, Handler h) => (Ctx c) async {
+      final u = await udb.one('SELECT role FROM users WHERE id=?', <Object?>[c.userId]);
       if (u == null || u['role'] != 'admin') {
         await c.json(403, <String, Object?>{'message': 'Admin access required'});
         return;
@@ -173,24 +174,25 @@ Future<Map<String, Object?>?> _eventDetail(AppDb db, int id) async {
 
 /// Pemeriksaan tiket (dipakai verifikasi dan check-in).
 /// status: not_found | invalid_chain | wrong_event | event_cancelled | already_used | valid
-Future<Map<String, Object?>> _inspectTicket(AppDb db, String code, {int? eventId}) async {
+Future<Map<String, Object?>> _inspectTicket(AppDb db, AppDb udb, String code, {int? eventId}) async {
   final t = await db.one(
     '''SELECT t.ticket_code, t.event_id, t.used_at, t.checked_in_by,
               e.title AS event_title, e.start_time_utc, e.status AS event_status,
-              u.name AS owner_name, u.email AS owner_email, tr.tier_name,
-              tr.holder_name, tr.holder_nik, tr.holder_age, tr.holder_gender,
-              cb.name AS checked_in_by_name
+              t.user_id, tr.tier_name,
+              tr.holder_name, tr.holder_nik, tr.holder_age, tr.holder_gender
        FROM tickets t
        JOIN events e ON e.id = t.event_id
-       JOIN users u ON u.id = t.user_id
        LEFT JOIN transactions tr ON tr.order_id = t.order_id
-       LEFT JOIN users cb ON cb.id = t.checked_in_by
        WHERE t.ticket_code = ?''',
     <Object?>[code],
   );
   if (t == null) {
     return <String, Object?>{'status': 'not_found', 'message': 'Ticket not found. It may be fake.', 'ticket': null};
   }
+  await attachUsers(udb, <Map<String, Object?>>[t], <String, Map<String, String>>{
+    'user_id': <String, String>{'owner_name': 'name', 'owner_email': 'email'},
+    'checked_in_by': <String, String>{'checked_in_by_name': 'name'},
+  });
   final block = await db.one('SELECT idx, hash FROM blocks WHERE ticket_code=?', <Object?>[code]);
   final chain = await verifyChain(db);
   final base = <String, Object?>{
@@ -220,11 +222,12 @@ Future<Map<String, Object?>> _inspectTicket(AppDb db, String code, {int? eventId
   return <String, Object?>{...base, 'status': status, 'message': message};
 }
 
-void registerAdmin(Router r, AppDb db) {
-  void get(String p, Handler h) => r.get(p, _adminOnly(db, h), auth: true);
-  void post(String p, Handler h) => r.post(p, _adminOnly(db, h), auth: true);
-  void put(String p, Handler h) => r.put(p, _adminOnly(db, h), auth: true);
-  void del(String p, Handler h) => r.delete(p, _adminOnly(db, h), auth: true);
+/// [udb] = SQLite khusus akun/login (tabel users); [db] = database utama (bisa Supabase).
+void registerAdmin(Router r, AppDb db, AppDb udb) {
+  void get(String p, Handler h) => r.get(p, _adminOnly(udb, h), auth: true);
+  void post(String p, Handler h) => r.post(p, _adminOnly(udb, h), auth: true);
+  void put(String p, Handler h) => r.put(p, _adminOnly(udb, h), auth: true);
+  void del(String p, Handler h) => r.delete(p, _adminOnly(udb, h), auth: true);
 
   Future<void> log(Ctx c, String action, String target, [String? detail]) async {
     await db.run(
@@ -239,7 +242,7 @@ void registerAdmin(Router r, AppDb db) {
 
   // Cek akses admin (dipakai app admin setelah login)
   get('/api/admin/me', (c) async {
-    final u = await db.one('SELECT id,name,email,role FROM users WHERE id=?', <Object?>[c.userId]);
+    final u = await udb.one('SELECT id,name,email,role FROM users WHERE id=?', <Object?>[c.userId]);
     await c.json(200, u);
   });
 
@@ -252,7 +255,7 @@ void registerAdmin(Router r, AppDb db) {
       'revenue_idr': revenue,
       'tickets_sold': (await db.one('SELECT COUNT(*) AS n FROM tickets'))!['n'],
       'tickets_checked_in': (await db.one('SELECT COUNT(*) AS n FROM tickets WHERE used_at IS NOT NULL'))!['n'],
-      'users': (await db.one("SELECT COUNT(*) AS n FROM users WHERE role='user'"))!['n'],
+      'users': (await udb.one("SELECT COUNT(*) AS n FROM users WHERE role='user'"))!['n'],
       'active_events': (await db.one(
         "SELECT COUNT(*) AS n FROM events WHERE status='active' AND end_time_utc > ?",
         <Object?>[nowIso],
@@ -446,36 +449,61 @@ void registerAdmin(Router r, AppDb db) {
   get('/api/admin/orders', (c) async {
     final status = c.query['status'];
     final q = c.query['q'] ?? '';
-    var where = 'WHERE (tr.order_id LIKE ? OR u.email LIKE ? OR u.name LIKE ?)';
-    final params = <Object?>['%$q%', '%$q%', '%$q%'];
+    // users ada di SQLite: cari id user yang cocok dulu, lalu cocokkan ke tr.user_id
+    final matchIds = q.isEmpty ? <int>[] : await searchUserIds(udb, q);
+    var where = matchIds.isEmpty
+        ? 'WHERE tr.order_id LIKE ?'
+        : 'WHERE (tr.order_id LIKE ? OR tr.user_id IN (${List<String>.filled(matchIds.length, '?').join(',')}))';
+    final params = <Object?>['%$q%', ...matchIds];
     if (status != null && status.isNotEmpty) {
       where += ' AND tr.status=?';
       params.add(status);
     }
-    const from = 'FROM transactions tr JOIN users u ON u.id = tr.user_id JOIN events e ON e.id = tr.event_id';
+    const from = 'FROM transactions tr JOIN events e ON e.id = tr.event_id';
     final total = (await db.one('SELECT COUNT(*) AS n $from $where', params))!['n'];
     final items = await db.all(
       '''SELECT tr.order_id, tr.status, tr.qty, tr.gross_amount, tr.tier_name, tr.created_at,
                 tr.holder_name, tr.holder_nik, tr.holder_age, tr.holder_gender,
-                u.name AS user_name, u.email AS user_email, e.title AS event_title
+                tr.user_id, e.title AS event_title
          $from $where ORDER BY tr.created_at DESC, tr.order_id DESC LIMIT ? OFFSET ?''',
       <Object?>[...params, _limit(c), _offset(c)],
     );
+    await attachUsers(udb, items, <String, Map<String, String>>{
+      'user_id': <String, String>{'user_name': 'name', 'user_email': 'email'},
+    });
     await c.json(200, <String, Object?>{'total': total, 'items': items});
   });
 
   // ---------------- User ----------------
   get('/api/admin/users', (c) async {
     final q = c.query['q'] ?? '';
-    final rows = await db.all(
-      '''SELECT u.id, u.name, u.email, u.role, u.created_at,
-                (SELECT COUNT(*) FROM tickets t WHERE t.user_id = u.id) AS tickets,
-                (SELECT COALESCE(SUM(gross_amount),0) FROM transactions tr
-                   WHERE tr.user_id = u.id AND tr.status='paid') AS total_spent_idr
+    // Akun dari SQLite; jumlah tiket & total belanja dihitung dari database utama lalu digabung.
+    final rows = await udb.all(
+      '''SELECT u.id, u.name, u.email, u.role, u.created_at
          FROM users u WHERE (u.name LIKE ? OR u.email LIKE ?)
          ORDER BY u.id DESC LIMIT ? OFFSET ?''',
       <Object?>['%$q%', '%$q%', _limit(c), _offset(c)],
     );
+    if (rows.isNotEmpty) {
+      final ids = rows.map((r) => (r['id'] as num).toInt()).toList();
+      final marks = List<String>.filled(ids.length, '?').join(',');
+      final tix = {
+        for (final r in await db.all('SELECT user_id, COUNT(*) AS n FROM tickets WHERE user_id IN ($marks) GROUP BY user_id', ids))
+          (r['user_id'] as num).toInt(): r['n'],
+      };
+      final spent = {
+        for (final r in await db.all(
+          "SELECT user_id, COALESCE(SUM(gross_amount),0) AS v FROM transactions WHERE status='paid' AND user_id IN ($marks) GROUP BY user_id",
+          ids,
+        ))
+          (r['user_id'] as num).toInt(): r['v'],
+      };
+      for (final r in rows) {
+        final id = (r['id'] as num).toInt();
+        r['tickets'] = tix[id] ?? 0;
+        r['total_spent_idr'] = spent[id] ?? 0;
+      }
+    }
     await c.json(200, rows);
   });
 
@@ -534,15 +562,16 @@ void registerAdmin(Router r, AppDb db) {
   // ---------------- Tiket: verifikasi & check-in ----------------
   get('/api/admin/events/:id/tickets', (c) async {
     final rows = await db.all(
-      '''SELECT t.ticket_code, t.used_at, u.name AS owner_name, u.email AS owner_email,
-                tr.tier_name, cb.name AS checked_in_by_name
+      '''SELECT t.ticket_code, t.used_at, t.user_id, t.checked_in_by, tr.tier_name
          FROM tickets t
-         JOIN users u ON u.id = t.user_id
          LEFT JOIN transactions tr ON tr.order_id = t.order_id
-         LEFT JOIN users cb ON cb.id = t.checked_in_by
          WHERE t.event_id = ? ORDER BY t.id''',
       <Object?>[pid(c) ?? -1],
     );
+    await attachUsers(udb, rows, <String, Map<String, String>>{
+      'user_id': <String, String>{'owner_name': 'name', 'owner_email': 'email'},
+      'checked_in_by': <String, String>{'checked_in_by_name': 'name'},
+    });
     await c.json(200, rows);
   });
 
@@ -551,7 +580,7 @@ void registerAdmin(Router r, AppDb db) {
     final b = c.bodyMap;
     final code = (b['code'] ?? '').toString().trim().toUpperCase();
     if (code.isEmpty) return bad(c, 'Ticket code is required');
-    await c.json(200, await _inspectTicket(db, code, eventId: _int(b['event_id'])));
+    await c.json(200, await _inspectTicket(db, udb, code, eventId: _int(b['event_id'])));
   });
 
   // Check-in di pintu masuk: lolos hanya bila tiket asli, event benar, dan belum dipakai
@@ -559,7 +588,7 @@ void registerAdmin(Router r, AppDb db) {
     final b = c.bodyMap;
     final code = (b['code'] ?? '').toString().trim().toUpperCase();
     if (code.isEmpty) return bad(c, 'Ticket code is required');
-    final result = await _inspectTicket(db, code, eventId: _int(b['event_id']));
+    final result = await _inspectTicket(db, udb, code, eventId: _int(b['event_id']));
     if (result['status'] != 'valid') {
       await c.json(200, <String, Object?>{...result, 'ok': false});
       return;
@@ -571,12 +600,12 @@ void registerAdmin(Router r, AppDb db) {
       <Object?>[now, c.userId, code],
     )).changes;
     if (changed != 1) {
-      await c.json(200, <String, Object?>{...await _inspectTicket(db, code, eventId: _int(b['event_id'])), 'ok': false});
+      await c.json(200, <String, Object?>{...await _inspectTicket(db, udb, code, eventId: _int(b['event_id'])), 'ok': false});
       return;
     }
     await log(c, 'ticket.checkin', 'ticket:$code', (result['ticket'] as Map)['event_title'] as String);
     await c.json(200, <String, Object?>{
-      ...await _inspectTicket(db, code, eventId: _int(b['event_id'])),
+      ...await _inspectTicket(db, udb, code, eventId: _int(b['event_id'])),
       'status': 'checked_in',
       'message': 'Check-in successful. Welcome!',
       'ok': true,
@@ -601,30 +630,26 @@ void registerAdmin(Router r, AppDb db) {
     final body = b['body'];
     if (title is! String || title.trim().isEmpty || title.length > 80) return bad(c, 'Title is required (max 80 characters)');
     if (body is! String || body.trim().isEmpty || body.length > 300) return bad(c, 'Body is required (max 300 characters)');
-    final changes = (await db.run(
-      'INSERT INTO notifications(user_id,title,body) SELECT id, CAST(? AS TEXT), CAST(? AS TEXT) FROM users',
-      <Object?>[title.trim(), body.trim()],
-    )).changes;
+    final changes = await notifyAllUsers(db, udb, title.trim(), body.trim());
     await log(c, 'broadcast.send', 'users:$changes', title.trim());
     await c.json(201, <String, Object?>{'sent_to': changes});
   });
 
   // ---------------- Darurat, feedback, blockchain, log ----------------
   get('/api/admin/emergency', (c) async {
-    await c.json(
-      200,
-      await db.all(
-        '''SELECT a.id, a.ticket_code, a.latitude, a.longitude, a.created_at,
-                  a.responded_at, ru.name AS responded_by_name,
-                  u.name AS user_name, u.email AS user_email, e.title AS event_title
-           FROM emergency_alerts a
-           JOIN users u ON u.id = a.user_id
-           LEFT JOIN users ru ON ru.id = a.responded_by
-           LEFT JOIN events e ON e.id = a.event_id
-           ORDER BY a.id DESC LIMIT ?''',
-        <Object?>[_limit(c, def: 100)],
-      ),
+    final rows = await db.all(
+      '''SELECT a.id, a.ticket_code, a.latitude, a.longitude, a.created_at,
+                a.responded_at, a.user_id, a.responded_by, e.title AS event_title
+         FROM emergency_alerts a
+         LEFT JOIN events e ON e.id = a.event_id
+         ORDER BY a.id DESC LIMIT ?''',
+      <Object?>[_limit(c, def: 100)],
     );
+    await attachUsers(udb, rows, <String, Map<String, String>>{
+      'user_id': <String, String>{'user_name': 'name', 'user_email': 'email'},
+      'responded_by': <String, String>{'responded_by_name': 'name'},
+    });
+    await c.json(200, rows);
   });
 
   // Tandai alert SOS sudah ditangani. User yang mengirim mendapat notifikasi bahwa staf sedang merespons.
@@ -652,15 +677,16 @@ void registerAdmin(Router r, AppDb db) {
   });
 
   get('/api/admin/feedback', (c) async {
-    await c.json(
-      200,
-      await db.all(
-        '''SELECT f.id, f.rating, f.message, f.created_at, u.name AS user_name, u.email AS user_email
-           FROM course_feedback f JOIN users u ON u.id = f.user_id
-           ORDER BY f.id DESC LIMIT ?''',
-        <Object?>[_limit(c, def: 100)],
-      ),
+    final rows = await db.all(
+      '''SELECT f.id, f.rating, f.message, f.created_at, f.user_id
+         FROM course_feedback f
+         ORDER BY f.id DESC LIMIT ?''',
+      <Object?>[_limit(c, def: 100)],
     );
+    await attachUsers(udb, rows, <String, Map<String, String>>{
+      'user_id': <String, String>{'user_name': 'name', 'user_email': 'email'},
+    });
+    await c.json(200, rows);
   });
 
   get('/api/admin/blockchain', (c) async {
@@ -674,14 +700,15 @@ void registerAdmin(Router r, AppDb db) {
   });
 
   get('/api/admin/logs', (c) async {
-    await c.json(
-      200,
-      await db.all(
-        '''SELECT l.id, l.action, l.target, l.detail, l.created_at, u.name AS admin_name
-           FROM admin_logs l JOIN users u ON u.id = l.admin_id
-           ORDER BY l.id DESC LIMIT ?''',
-        <Object?>[_limit(c, def: 100)],
-      ),
+    final rows = await db.all(
+      '''SELECT l.id, l.action, l.target, l.detail, l.created_at, l.admin_id
+         FROM admin_logs l
+         ORDER BY l.id DESC LIMIT ?''',
+      <Object?>[_limit(c, def: 100)],
     );
+    await attachUsers(udb, rows, <String, Map<String, String>>{
+      'admin_id': <String, String>{'admin_name': 'name'},
+    });
+    await c.json(200, rows);
   });
 }

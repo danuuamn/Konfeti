@@ -15,6 +15,7 @@ import 'routes/rates.dart';
 import 'routes/spotify.dart';
 import 'routes/tickets.dart';
 import 'routes/weather.dart';
+import 'services/users.dart';
 import 'web.dart';
 
 /// Menjalankan server Konfeti. Dipanggil dari bin/server.dart.
@@ -29,11 +30,17 @@ Future<void> runServer() async {
       .create(recursive: true);
 
   final db = await AppDb.open();
+  // Akun/login selalu di SQLite lokal (permintaan dosen); data lain mengikuti DATABASE_URL.
+  final udb = AppDb.usersFor(db);
+  final moved = await migrateUsersFromPostgres(db, udb);
+  if (moved != null) print(moved);
   final router = Router();
 
   router.get('/api/health', (c) async {
     await c.json(200, <String, Object?>{
       'status': 'ok',
+      'database': db.kind,
+      'users_database': udb.kind,
       'dev': Env.devRoutes,
       'features': <String, Object?>{
         'midtrans': Env.has('MIDTRANS_SERVER_KEY'),
@@ -44,12 +51,12 @@ Future<void> runServer() async {
     });
   });
 
-  registerAuth(router, db);
-  registerAdmin(router, db);
+  registerAuth(router, db, udb);
+  registerAdmin(router, db, udb);
   registerEvents(router, db);
   registerOrders(router, db);
   registerTickets(router, db);
-  registerNotifications(router, db);
+  registerNotifications(router, db, udb);
   registerPromos(router, db);
   registerFeedback(router, db);
   registerEmergency(router, db);

@@ -18,9 +18,9 @@ Future<void> main() async {
   final src = SqliteDb.open();
   final dst = await PgDb.open(url);
 
+  // Tabel users sengaja tidak disalin: akun/login tetap di SQLite lokal.
   // Urutan penting karena foreign key.
   const tables = <String, String?>{
-    'users': 'id',
     'events': 'id',
     'ticket_tiers': 'id',
     'transactions': null,

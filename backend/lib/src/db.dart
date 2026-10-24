@@ -30,6 +30,10 @@ abstract class AppDb {
     return SqliteDb.open();
   }
 
+  /// Database khusus akun/login (tabel `users`): SELALU SQLite lokal, tidak pernah Supabase.
+  /// Bila database utama sudah SQLite, objek yang sama dipakai ulang.
+  static AppDb usersFor(AppDb main) => main is SqliteDb ? main : SqliteDb.openUsersOnly();
+
   /// SELECT banyak baris -> list of map.
   Future<List<Map<String, Object?>>> all(String sql, [List<Object?> params = const <Object?>[]]);
 
@@ -89,6 +93,18 @@ class SqliteDb extends AppDb {
     addColumn('tickets', 'checked_in_by', 'INTEGER REFERENCES users(id)');
     addColumn('emergency_alerts', 'responded_at', 'TEXT');
     addColumn('emergency_alerts', 'responded_by', 'INTEGER REFERENCES users(id)');
+    return SqliteDb._(raw);
+  }
+
+  /// SQLite yang hanya berisi tabel `users` (file yang sama dengan app.db / DB_PATH).
+  /// Dipakai saat data lain ada di Supabase tetapi login harus tetap lokal.
+  static SqliteDb openUsersOnly() {
+    final path = Env.get('DB_PATH', '${Directory.current.path}${Platform.pathSeparator}app.db');
+    final raw = sq.sqlite3.open(path);
+    raw.execute('PRAGMA journal_mode = WAL;');
+    raw.execute(schemaStatements.first); // CREATE TABLE IF NOT EXISTS users
+    final cols = raw.select('PRAGMA table_info(users)').map((row) => row['name']).toSet();
+    if (!cols.contains('role')) raw.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'");
     return SqliteDb._(raw);
   }
 
@@ -187,6 +203,17 @@ class PgDb extends AppDb {
     }
     await db._session.execute('ALTER TABLE emergency_alerts ADD COLUMN IF NOT EXISTS responded_at TEXT');
     await db._session.execute('ALTER TABLE emergency_alerts ADD COLUMN IF NOT EXISTS responded_by BIGINT');
+    // Data login ada di SQLite, jadi foreign key ke users di Supabase dilepas (kalau masih ada dari versi lama).
+    await db._session.execute(r'''
+DO $$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT conrelid::regclass AS tbl, conname FROM pg_constraint
+           WHERE contype = 'f' AND confrelid = to_regclass('public.users')
+  LOOP
+    EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I', r.tbl, r.conname);
+  END LOOP;
+END $$''');
     return db;
   }
 

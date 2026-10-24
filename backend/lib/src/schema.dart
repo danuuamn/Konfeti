@@ -124,17 +124,9 @@ CREATE TABLE IF NOT EXISTS admin_logs (
 /// Skema untuk Postgres (Supabase). Setara dengan [schemaStatements].
 /// created_at disimpan sebagai TEXT berformat 'YYYY-MM-DD HH:MM:SS' (UTC), sama dengan SQLite,
 /// supaya JSON dan perbandingan tanggal di kode berperilaku identik di kedua mesin.
+// Tabel `users` (data login) TIDAK ada di Postgres/Supabase: disimpan di SQLite lokal (lihat db.dart).
+// Kolom user_id / admin_id / checked_in_by / responded_by hanya angka id, tanpa foreign key.
 const List<String> pgSchemaStatements = <String>[
-  '''
-CREATE TABLE IF NOT EXISTS users (
-  id BIGSERIAL PRIMARY KEY,
-  name TEXT NOT NULL,
-  email TEXT UNIQUE NOT NULL,
-  password_hash TEXT NOT NULL,
-  avatar_url TEXT,
-  role TEXT NOT NULL DEFAULT 'user',
-  created_at TEXT DEFAULT to_char(timezone('utc', now()), 'YYYY-MM-DD HH24:MI:SS')
-)''',
   '''
 CREATE TABLE IF NOT EXISTS events (
   id BIGSERIAL PRIMARY KEY,
@@ -156,7 +148,7 @@ CREATE TABLE IF NOT EXISTS events (
   '''
 CREATE TABLE IF NOT EXISTS transactions (
   order_id TEXT PRIMARY KEY,
-  user_id BIGINT NOT NULL REFERENCES users(id),
+  user_id BIGINT NOT NULL,
   event_id BIGINT NOT NULL REFERENCES events(id),
   qty INTEGER NOT NULL,
   gross_amount INTEGER NOT NULL,
@@ -186,9 +178,9 @@ CREATE TABLE IF NOT EXISTS tickets (
   ticket_code TEXT UNIQUE NOT NULL,
   order_id TEXT NOT NULL REFERENCES transactions(order_id),
   event_id BIGINT NOT NULL REFERENCES events(id),
-  user_id BIGINT NOT NULL REFERENCES users(id),
+  user_id BIGINT NOT NULL,
   used_at TEXT,
-  checked_in_by BIGINT REFERENCES users(id)
+  checked_in_by BIGINT
 )''',
   '''
 CREATE TABLE IF NOT EXISTS blocks (
@@ -202,7 +194,7 @@ CREATE TABLE IF NOT EXISTS blocks (
   '''
 CREATE TABLE IF NOT EXISTS notifications (
   id BIGSERIAL PRIMARY KEY,
-  user_id BIGINT NOT NULL REFERENCES users(id),
+  user_id BIGINT NOT NULL,
   title TEXT,
   body TEXT,
   is_read INTEGER DEFAULT 0,
@@ -218,7 +210,7 @@ CREATE TABLE IF NOT EXISTS promos (
   '''
 CREATE TABLE IF NOT EXISTS course_feedback (
   id BIGSERIAL PRIMARY KEY,
-  user_id BIGINT NOT NULL REFERENCES users(id),
+  user_id BIGINT NOT NULL,
   rating INTEGER NOT NULL,
   message TEXT NOT NULL,
   created_at TEXT DEFAULT to_char(timezone('utc', now()), 'YYYY-MM-DD HH24:MI:SS')
@@ -226,19 +218,19 @@ CREATE TABLE IF NOT EXISTS course_feedback (
   '''
 CREATE TABLE IF NOT EXISTS emergency_alerts (
   id BIGSERIAL PRIMARY KEY,
-  user_id BIGINT NOT NULL REFERENCES users(id),
+  user_id BIGINT NOT NULL,
   event_id BIGINT REFERENCES events(id),
   ticket_code TEXT,
   latitude DOUBLE PRECISION,
   longitude DOUBLE PRECISION,
   responded_at TEXT,
-  responded_by BIGINT REFERENCES users(id),
+  responded_by BIGINT,
   created_at TEXT DEFAULT to_char(timezone('utc', now()), 'YYYY-MM-DD HH24:MI:SS')
 )''',
   '''
 CREATE TABLE IF NOT EXISTS admin_logs (
   id BIGSERIAL PRIMARY KEY,
-  admin_id BIGINT NOT NULL REFERENCES users(id),
+  admin_id BIGINT NOT NULL,
   action TEXT NOT NULL,
   target TEXT,
   detail TEXT,

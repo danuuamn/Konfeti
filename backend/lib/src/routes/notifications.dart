@@ -1,8 +1,9 @@
 import '../db.dart';
 import '../env.dart';
+import '../services/users.dart';
 import '../web.dart';
 
-void registerNotifications(Router r, AppDb db) {
+void registerNotifications(Router r, AppDb db, AppDb udb) {
   r.get('/api/notifications', (c) async {
     await c.json(
       200,
@@ -29,11 +30,8 @@ void registerNotifications(Router r, AppDb db) {
       final b = c.bodyMap;
       final title = (b['title'] ?? 'Special promo!').toString();
       final body = (b['body'] ?? 'Use code WEEKEND15 for 15% off this weekend.').toString();
-      final info = await db.run(
-        'INSERT INTO notifications(user_id,title,body) SELECT id, CAST(? AS TEXT), CAST(? AS TEXT) FROM users',
-        <Object?>[title, body],
-      );
-      await c.json(200, <String, Object?>{'sent_to': info.changes});
+      final sent = await notifyAllUsers(db, udb, title, body);
+      await c.json(200, <String, Object?>{'sent_to': sent});
     });
   }
 }
