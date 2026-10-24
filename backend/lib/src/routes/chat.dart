@@ -1,3 +1,4 @@
+import 'dart:async' show TimeoutException;
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -113,9 +114,9 @@ void registerChat(Router r, AppDb db) {
       }
     }
     turns.add(<String, String>{'role': 'user', 'text': message});
-    final primary = Env.get('GEMINI_MODEL', 'gemini-flash-latest');
-    final fallback = Env.get('GEMINI_FALLBACK_MODEL', 'gemini-2.5-flash-lite');
-    final attempts = <String>[primary, primary, fallback];
+    final primary = Env.get('GEMINI_MODEL', 'gemini-2.5-flash-lite');
+    final fallback = Env.get('GEMINI_FALLBACK_MODEL', 'gemini-2.5-flash');
+    final attempts = <String>[primary, fallback, primary];
 
     Object? lastError;
     for (final name in attempts) {
@@ -127,7 +128,9 @@ void registerChat(Router r, AppDb db) {
         lastError = e;
         final status = e is ApiError ? e.status : null;
         print('Gemini error ($name): $status $e');
-        if (status != 503 && status != 429) break; // ulangi hanya jika server sibuk / kuota
+        // timeout: langsung coba model berikutnya tanpa jeda; sibuk / kuota: jeda sebentar lalu ulangi
+        if (e is TimeoutException) continue;
+        if (status != 503 && status != 429) break;
         await Future<void>.delayed(const Duration(milliseconds: 1200));
       }
     }
