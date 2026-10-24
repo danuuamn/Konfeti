@@ -114,8 +114,8 @@ void registerChat(Router r, AppDb db) {
       }
     }
     turns.add(<String, String>{'role': 'user', 'text': message});
-    final primary = Env.get('GEMINI_MODEL', 'gemini-2.5-flash-lite');
-    final fallback = Env.get('GEMINI_FALLBACK_MODEL', 'gemini-2.5-flash');
+    final primary = Env.get('GEMINI_MODEL', 'gemini-3.5-flash-lite');
+    final fallback = Env.get('GEMINI_FALLBACK_MODEL', 'gemini-3.6-flash');
     final attempts = <String>[primary, fallback, primary];
 
     Object? lastError;
